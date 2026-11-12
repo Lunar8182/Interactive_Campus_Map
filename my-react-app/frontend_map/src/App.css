@@ -1,0 +1,103 @@
+:root {
+  --emu-green: #006633;
+  --emu-dark: #004d26;
+  --emu-light: #e6f2ec;
+  --emu-yellow: #facc15;
+}
+
+.bg-emu-green { background-color: var(--emu-green); }
+.bg-emu-dark { background-color: var(--emu-dark); }
+.bg-emu-light { background-color: var(--emu-light); }
+.text-emu-green { color: var(--emu-green); }
+.text-emu-dark { color: var(--emu-dark); }
+.border-emu-green { border-color: var(--emu-green); }
+.hover\:bg-emu-dark:hover { background-color: var(--emu-dark); }
+.focus\:ring-emu-green:focus { --tw-ring-color: var(--emu-green); }
+
+#emuMapView {
+  height: 100%;
+  width: 100%;
+  min-height: 360px;
+}
+
+.badge-pop {
+  top: 10px;
+  right: 10px;
+}
+
+/* Custom EMU Scrollbar */
+.emu-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.emu-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.emu-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 9999px;
+}
+.emu-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--emu-green);
+}
+
+/* Meteorite Destruction Feature */
+@keyframes meteorFall {
+  0% {
+    transform: translate(0, -40px) rotate(25deg) scale(0.8);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-180px, 105vh) rotate(25deg) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.emu-meteorite {
+  position: fixed;
+  width: 26px;
+  height: 26px;
+  background: radial-gradient(circle at 30% 30%, #fff3b0 0%, #ff6b6b 35%, #cc0000 80%);
+  border-radius: 50%;
+  box-shadow: 0 0 18px #ff4500, 0 0 36px #ff8c00;
+  pointer-events: none;
+  z-index: 9999;
+  animation: meteorFall 1.15s linear forwards;
+}
+
+.emu-meteorite::after {
+  content: '';
+  position: absolute;
+  top: -45px;
+  left: 8px;
+  width: 10px;
+  height: 55px;
+  background: linear-gradient(to top, rgba(255, 107, 107, 0.85), transparent);
+  border-radius: 9999px;
+}
+
+@keyframes portalShake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  15% { transform: translate(-6px, 4px) rotate(-0.5deg); }
+  30% { transform: translate(6px, -4px) rotate(0.5deg); }
+  45% { transform: translate(-5px, -3px) rotate(-0.4deg); }
+  60% { transform: translate(5px, 3px) rotate(0.4deg); }
+  75% { transform: translate(-3px, 2px) rotate(-0.2deg); }
+}
+
+.portal-destroying {
+  animation: portalShake 0.45s infinite;
+  filter: contrast(1.1) sepia(0.18);
+}
+
+@keyframes buddyFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+.buddy-avatar-float {
+  animation: buddyFloat 3s ease-in-out infinite;
+}

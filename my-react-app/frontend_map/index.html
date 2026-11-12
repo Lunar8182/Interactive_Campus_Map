@@ -1,10 +1,28 @@
 <!doctype html>
 <html lang="en">
+
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>my-react-app</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          emu: {
+            green: '#006633',
+            dark: '#004d26',
+            light: '#e6f2ec'
+          }
+        }
+      }
+    }
+  }
+</script>
   </head>
   <body>
     <div id="root"></div>

@@ -1560,7 +1560,7 @@ export default function App() {
                 <div className="flex items-center space-x-2">
                   <Utensils className="w-6 h-6 text-emu-green" />
                   <h2 className="text-2xl font-extrabold text-emu-dark">
-                    CAMPUS FOOD & DINING OPTIONS
+                    CAMPUS FOOD & DINING
                   </h2>
                 </div>
                 <span className="text-xs bg-orange-100 text-orange-800 font-bold px-2.5 py-1 rounded-full">

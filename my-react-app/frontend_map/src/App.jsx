@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
 import {
@@ -52,9 +51,6 @@ import {
 } from "lucide-react";
 import "./App.css";
 
-/* ============================================================================
-   FIREBASE INITIALIZATION (Top-Level Scope)
-   ============================================================================ */
 const firebaseConfig = {
   apiKey: "AIzaSyDifVjQsuO0OLrS-obAlFPIAq1iF5TDFaE",
   authDomain: "emumap-c36a9.firebaseapp.com",
@@ -70,13 +66,42 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "emu-campus-portal";
 
-/* ============================================================================
-   STATIC & SEED CAMPUS DATASETS (Ypsilanti, MI - Eastern Michigan University)
-   ============================================================================ */
 const CAMPUS_VIEWS = {
-  "Eastern Michigan University": { center: [-83.6245, 42.2505], zoom: 15 },
-  "Main Campus": { center: [-83.624, 42.2485], zoom: 16.5 },
-  "West Campus": { center: [-83.6462, 42.2552], zoom: 16 },
+  "Eastern Michigan University": { center: [-83.6255, 42.2498], zoom: 15.5 },
+  "Main Campus": { center: [-83.6248, 42.2495], zoom: 16.5 },
+  "West Campus": { center: [-83.6465, 42.2548], zoom: 16.5 },
+};
+
+const VERIFIED_EMU_COORDS = {
+  "rynearson stadium": { lng: -83.6473, lat: 42.2558 },
+  "george gervin gameabove center": { lng: -83.6458, lat: 42.2536 },
+  "gameabove center": { lng: -83.6458, lat: 42.2536 },
+  "emu student center": { lng: -83.6273, lat: 42.2507 },
+  "student center": { lng: -83.6273, lat: 42.2507 },
+  "the commons": { lng: -83.6266, lat: 42.2518 },
+  "commons": { lng: -83.6266, lat: 42.2518 },
+  "bruce t. halle library": { lng: -83.6256, lat: 42.2473 },
+  "halle library": { lng: -83.6256, lat: 42.2473 },
+  "hall-e": { lng: -83.6256, lat: 42.2473 },
+  "library": { lng: -83.6256, lat: 42.2473 },
+  "eastern eateries": { lng: -83.6275, lat: 42.2496 },
+  "eateries": { lng: -83.6275, lat: 42.2496 },
+  "crossroads marketplace": { lng: -83.6258, lat: 42.2454 },
+  "crossroads": { lng: -83.6258, lat: 42.2454 },
+  "pray-harrold": { lng: -83.6223, lat: 42.2494 },
+  "sill hall": { lng: -83.6193, lat: 42.2484 },
+  "strong hall": { lng: -83.6258, lat: 42.2492 },
+  "mark jefferson science complex": { lng: -83.6263, lat: 42.2481 },
+  "mark jefferson": { lng: -83.6263, lat: 42.2481 },
+  "owen building": { lng: -83.6163, lat: 42.2414 },
+  "owen college of business": { lng: -83.6163, lat: 42.2414 },
+  "pease auditorium": { lng: -83.6197, lat: 42.2465 },
+  "mckenny hall": { lng: -83.6214, lat: 42.2464 },
+  "university park": { lng: -83.6247, lat: 42.2494 },
+  "rec/im": { lng: -83.6285, lat: 42.2533 },
+  "snow health center": { lng: -83.6278, lat: 42.2476 },
+  "public safety": { lng: -83.6312, lat: 42.2548 },
+  "parking structure": { lng: -83.6286, lat: 42.2498 },
 };
 
 const SEED_EVENTS = [
@@ -86,7 +111,7 @@ const SEED_EVENTS = [
     time: "2026-11-14T12:00",
     location: "Rynearson Stadium",
     lng: -83.6473,
-    lat: 42.2562,
+    lat: 42.2558,
     badge: "Sports",
     attendingCount: 142,
     image:
@@ -98,8 +123,8 @@ const SEED_EVENTS = [
     title: "Student Center Pizza Night",
     time: "2026-11-18T18:00",
     location: "EMU Student Center",
-    lng: -83.6242,
-    lat: 42.2472,
+    lng: -83.6273,
+    lat: 42.2507,
     badge: "Free Food",
     attendingCount: 89,
     image:
@@ -111,8 +136,8 @@ const SEED_EVENTS = [
     title: "Halle Library Late-Night Study Jam",
     time: "2026-11-20T20:00",
     location: "Bruce T. Halle Library",
-    lng: -83.6248,
-    lat: 42.2489,
+    lng: -83.6256,
+    lat: 42.2473,
     badge: "Academic",
     attendingCount: 64,
     image:
@@ -126,9 +151,9 @@ const SEED_REQUESTS = [
     seedId: "seed_req_1",
     title: "Eagles Esports Rocket League Open",
     time: "2026-11-21T17:30",
-    location: "Sill Hall Esports Arena",
-    lng: -83.6215,
-    lat: 42.2482,
+    location: "Sill Hall",
+    lng: -83.6193,
+    lat: 42.2484,
     badge: "Social",
     submittedBy: "Alex M. (Computer Science)",
     image:
@@ -139,9 +164,9 @@ const SEED_REQUESTS = [
     seedId: "seed_req_2",
     title: "Sunset Yoga at University Park",
     time: "2026-11-22T16:30",
-    location: "University Park Amphitheater",
-    lng: -83.6235,
-    lat: 42.2481,
+    location: "University Park",
+    lng: -83.6247,
+    lat: 42.2494,
     badge: "Social",
     submittedBy: "Maya R. (Rec/IM Wellness)",
     image:
@@ -152,9 +177,9 @@ const SEED_REQUESTS = [
     seedId: "seed_req_3",
     title: "Ypsi Student Startup Pitch Night",
     time: "2026-11-24T18:30",
-    location: "Owen College of Business",
-    lng: -83.6195,
-    lat: 42.2428,
+    location: "Owen Building",
+    lng: -83.6163,
+    lat: 42.2414,
     badge: "Academic",
     submittedBy: "Jordan T. (College of Business)",
     image:
@@ -173,32 +198,32 @@ const EMU_FOOD_LOCATIONS = [
     highlights:
       "All-you-care-to-eat dining hall with rotating global stations, brick-oven pizza, and allergen-friendly kitchen.",
     tag: "Dining Hall",
-    lng: -83.6258,
-    lat: 42.2508,
+    lng: -83.6266,
+    lat: 42.2518,
   },
   {
     id: "food-2",
-    name: "Student Center Food Court",
+    name: "Student Center",
     address: "900 Oakwood St (1st Floor)",
     hours: "7:30 AM – 10:00 PM",
     payment: "Dining Dollars • Flex • Card",
     highlights:
       "Features Starbucks, Panda Express, Wendy’s, Smashburger, and Boar’s Head Deli.",
     tag: "Food Court",
-    lng: -83.6242,
-    lat: 42.2472,
+    lng: -83.6273,
+    lat: 42.2507,
   },
   {
     id: "food-3",
-    name: "Halle Library Cafe",
+    name: "Halle Library",
     address: "955 W Circle Dr (1st Floor)",
     hours: "8:00 AM – 11:00 PM",
     payment: "Dining Dollars • Card",
     highlights:
       "Freshly brewed coffee, espresso drinks, warm pastries, and grab-and-go wraps for study sessions.",
     tag: "Cafe",
-    lng: -83.6248,
-    lat: 42.2489,
+    lng: -83.6256,
+    lat: 42.2473,
   },
   {
     id: "food-4",
@@ -209,8 +234,8 @@ const EMU_FOOD_LOCATIONS = [
     highlights:
       "Late-night campus market with hot grill specials, smoothies, snacks, and grocery essentials.",
     tag: "Marketplace",
-    lng: -83.6272,
-    lat: 42.2515,
+    lng: -83.6258,
+    lat: 42.2454,
   },
   {
     id: "food-5",
@@ -221,8 +246,8 @@ const EMU_FOOD_LOCATIONS = [
     highlights:
       "Popular residence hall eatery serving custom subs, flatbreads, wings, and baked treats.",
     tag: "Eatery",
-    lng: -83.6263,
-    lat: 42.2498,
+    lng: -83.6275,
+    lat: 42.2496,
   },
 ];
 
@@ -235,8 +260,8 @@ const EMU_ACADEMIC_BUILDINGS = [
       "College of Arts & Sciences • Communication • History • Economics • English",
     rooms: "Floors 1–7 (Rooms 101–714)",
     desc: "EMU’s largest classroom building located right on the central campus quad.",
-    lng: -83.6231,
-    lat: 42.2496,
+    lng: -83.6223,
+    lat: 42.2494,
   },
   {
     id: "class-2",
@@ -246,8 +271,8 @@ const EMU_ACADEMIC_BUILDINGS = [
       "GameAbove College of Engineering & Technology • Computer Science • Cybersecurity",
     rooms: "Labs 102–245 • Esports Arena",
     desc: "Recently modernized engineering and technology hub with robotics and simulation labs.",
-    lng: -83.6215,
-    lat: 42.2482,
+    lng: -83.6193,
+    lat: 42.2484,
   },
   {
     id: "class-3",
@@ -256,8 +281,8 @@ const EMU_ACADEMIC_BUILDINGS = [
     departments: "Physics & Astronomy • Geography & Geology • EMU Planetarium",
     rooms: "Rooms 100–430 • Rooftop Observatory",
     desc: "Home to physical sciences, GIS labs, and the iconic spherical EMU Planetarium.",
-    lng: -83.6238,
-    lat: 42.2504,
+    lng: -83.6258,
+    lat: 42.2492,
   },
   {
     id: "class-4",
@@ -266,30 +291,30 @@ const EMU_ACADEMIC_BUILDINGS = [
     departments: "Biology • Chemistry • Psychology • Environmental Science",
     rooms: "Atrium Lecture Halls • Research Wings A–D",
     desc: "State-of-the-art science research complex featuring a five-story glass atrium and greenhouse.",
-    lng: -83.6249,
-    lat: 42.2502,
+    lng: -83.6263,
+    lat: 42.2481,
   },
   {
     id: "class-5",
-    name: "Owen Building (College of Business)",
+    name: "Owen Building",
     code: "OWEN",
     departments: "Accounting • Finance • Management • Marketing • Supply Chain",
     rooms: "Floors 1–4 • Ethos Trading Lab",
     desc: "Located near downtown Ypsilanti, connecting business students directly with regional industry.",
-    lng: -83.6195,
-    lat: 42.2428,
+    lng: -83.6163,
+    lat: 42.2414,
   },
 ];
 
 const EMU_ATTRACTIONS = [
   {
     id: "attr-1",
-    name: 'Rynearson Stadium ("The Factory")',
+    name: "Rynearson Stadium",
     category: "Athletics",
     established: "1969 • Capacity 30,200",
     desc: "Home of EMU Eagles Football, renowned nationwide for its signature gray FieldTurf.",
     lng: -83.6473,
-    lat: 42.2562,
+    lat: 42.2558,
   },
   {
     id: "attr-2",
@@ -297,8 +322,8 @@ const EMU_ATTRACTIONS = [
     category: "Arena & Events",
     established: "1998 • Capacity 8,824",
     desc: "Premier multi-purpose arena hosting Eagles Men’s & Women’s Basketball, concerts, and commencement.",
-    lng: -83.6455,
-    lat: 42.2542,
+    lng: -83.6458,
+    lat: 42.2536,
   },
   {
     id: "attr-3",
@@ -306,8 +331,8 @@ const EMU_ATTRACTIONS = [
     category: "Historic Landmark",
     established: "1914 • Neoclassical Architecture",
     desc: "Historic concert hall hosting School of Music symphonies, guest lectures, and cultural showcases.",
-    lng: -83.6212,
-    lat: 42.2468,
+    lng: -83.6197,
+    lat: 42.2465,
   },
   {
     id: "attr-4",
@@ -315,30 +340,30 @@ const EMU_ATTRACTIONS = [
     category: "Historic Union",
     established: "1931 • Collegiate Gothic",
     desc: "Historic landmark on Cross Street that opened as the first student union at a teachers college in the US.",
-    lng: -83.6206,
-    lat: 42.2477,
+    lng: -83.6214,
+    lat: 42.2464,
   },
   {
     id: "attr-5",
-    name: "University Park & Lake House",
+    name: "University Park",
     category: "Campus Nature",
     established: "Central Campus Oasis",
     desc: "Scenic campus pond, fountain, walking trails, and outdoor amphitheater beside the Student Center.",
-    lng: -83.6235,
-    lat: 42.2481,
+    lng: -83.6247,
+    lat: 42.2494,
   },
 ];
 
 const EMU_POIS = [
   {
     id: "poi-1",
-    name: "Rec/IM Center",
+    name: "Rec/IM",
     type: "Recreation & Fitness",
     hours: "Mon–Fri 6:00 AM – 11:00 PM",
     contact: "(734) 487-1338",
     desc: "Indoor running track, weight rooms, lap pool, basketball/racquetball courts, and intramural sports.",
     lng: -83.6285,
-    lat: 42.2512,
+    lat: 42.2533,
   },
   {
     id: "poi-2",
@@ -347,28 +372,28 @@ const EMU_POIS = [
     hours: "Mon–Fri 8:00 AM – 5:00 PM",
     contact: "(734) 487-1122",
     desc: "University Health Services, on-site pharmacy, immunization clinic, and Counseling & Psychological Services (CAPS).",
-    lng: -83.6268,
-    lat: 42.2488,
+    lng: -83.6278,
+    lat: 42.2476,
   },
   {
     id: "poi-3",
-    name: "DPS Public Safety (EMU Police)",
+    name: "Public Safety",
     type: "Campus Safety",
     hours: "24/7 Dispatch & Patrol",
     contact: "(734) 487-1222",
     desc: "Located at 1200 Oakwood St. Provides 24/7 emergency response, SafeWalk escorts, and lost & found.",
-    lng: -83.6318,
-    lat: 42.2528,
+    lng: -83.6312,
+    lat: 42.2548,
   },
   {
     id: "poi-4",
-    name: "Parking Structures & Commuter Lots",
+    name: "Parking Structure",
     type: "Transit & Parking",
     hours: "24/7 Access • ParkEMU",
     contact: "(734) 487-3450",
     desc: "Main commuter parking structure and visitor metered parking adjacent to the Student Center and McKenny.",
-    lng: -83.6222,
-    lat: 42.2462,
+    lng: -83.6286,
+    lat: 42.2498,
   },
   {
     id: "poi-5",
@@ -377,8 +402,8 @@ const EMU_POIS = [
     hours: "Open 24/5 During Semesters",
     contact: "(734) 487-0020",
     desc: "Four floors of collaborative & quiet study spaces, University Archives, and Student IT Support Desk.",
-    lng: -83.6248,
-    lat: 42.2489,
+    lng: -83.6256,
+    lat: 42.2473,
   },
 ];
 
@@ -391,15 +416,10 @@ const NAV_TABS = [
   { id: "Chats", label: "Chats" },
 ];
 
-/* ============================================================================
-   MAIN REACT COMPONENT: App
-   ============================================================================ */
 export default function App() {
   const [activeTab, setActiveTab] = useState("Events");
   const [selectedCampus, setSelectedCampus] = useState("Eastern Michigan University");
-  const [mapReady, setMapReady] = useState(false);
 
-  // Firebase Auth & Student Profile State
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [studentProfile, setStudentProfile] = useState({
@@ -415,13 +435,12 @@ export default function App() {
         course: "COSC 311",
         building: "Sill Hall",
         time: "MW 10:00 AM",
-        lng: -83.6215,
-        lat: 42.2482,
+        lng: -83.6193,
+        lat: 42.2484,
       },
     ],
   });
 
-  // Firestore Collections State
   const [events, setEvents] = useState(() =>
     SEED_EVENTS.map((e) => ({ id: e.seedId, ...e }))
   );
@@ -430,46 +449,40 @@ export default function App() {
   );
   const [chatMessages, setChatMessages] = useState([]);
 
-  // Modals & Interactive UI State
   const [selectedEventModal, setSelectedEventModal] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Swoop Buddy & Destruction FX State
   const [buddyText, setBuddyText] = useState(
     'Swoop here! Click an event, explore campus tabs, or hit "ATTENDING!!!" to gain XP!'
   );
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [meteorites, setMeteorites] = useState([]);
   const [isDestroying, setIsDestroying] = useState(false);
 
-  // Create Event Form State
   const [newEventForm, setNewEventForm] = useState({
     title: "",
     time: "2026-11-25T17:00",
     badge: "Social",
     location: "EMU Student Center",
-    lng: -83.6242,
-    lat: 42.2472,
+    lng: -83.6273,
+    lat: 42.2507,
     image:
       "https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=600&q=80",
     desc: "",
   });
 
-  // Class Schedule Form State
   const [newClassForm, setNewClassForm] = useState({
     course: "",
     building: "Pray-Harrold",
     time: "TR 11:00 AM",
   });
 
-  // Campus Chat State
   const [chatInput, setChatInput] = useState("");
   const [chatChannel, setChatChannel] = useState("#General");
 
-  // Student Account Auth Form State
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({
     name: "",
@@ -480,17 +493,12 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
-  // Refs
   const mapContainerRef = useRef(null);
+  const webMapRef = useRef(null);
   const mapViewRef = useRef(null);
-  const graphicsLayerRef = useRef(null);
-  const graphicClassRef = useRef(null);
   const hasSeededRef = useRef(false);
   const chatEndRef = useRef(null);
 
-  /* --------------------------------------------------------------------------
-     1. INITIALIZE ARCGIS WEBMAP
-     -------------------------------------------------------------------------- */
   useEffect(() => {
     if (!document.getElementById("arcgis-430-css")) {
       const arcCss = document.createElement("link");
@@ -504,21 +512,33 @@ export default function App() {
       if (!window.require || !mapContainerRef.current || mapViewRef.current) return;
 
       window.require(
-        [
-          "esri/WebMap",
-          "esri/views/MapView",
-          "esri/Graphic",
-          "esri/layers/GraphicsLayer",
-        ],
-        (WebMap, MapView, Graphic, GraphicsLayer) => {
+        ["esri/WebMap", "esri/views/MapView"],
+        (WebMap, MapView) => {
           if (!mapContainerRef.current || mapViewRef.current) return;
 
           const webMap = new WebMap({
             portalItem: { id: "bf9349e436fd4cdca9f01a2b94390f81" },
           });
 
-          const gLayer = new GraphicsLayer();
-          webMap.add(gLayer);
+          webMap.when(() => {
+            webMap.allLayers.forEach((layer) => {
+              if (layer.type === "feature") {
+                layer.when(() => {
+                  const nameField = (layer.fields || []).find(
+                    (f) =>
+                      f.type === "string" &&
+                      !/globalid|shape|objectid/i.test(f.name)
+                  );
+                  if (nameField) {
+                    layer.popupTemplate = {
+                      title: `{${nameField.name}}`,
+                      content: "{*}",
+                    };
+                  }
+                });
+              }
+            });
+          });
 
           const view = new MapView({
             container: mapContainerRef.current,
@@ -527,10 +547,8 @@ export default function App() {
             zoom: CAMPUS_VIEWS["Eastern Michigan University"].zoom,
           });
 
+          webMapRef.current = webMap;
           mapViewRef.current = view;
-          graphicsLayerRef.current = gLayer;
-          graphicClassRef.current = Graphic;
-          setMapReady(true);
         }
       );
     };
@@ -559,9 +577,6 @@ export default function App() {
     };
   }, []);
 
-  /* --------------------------------------------------------------------------
-     2. FIREBASE AUTHENTICATION LIFECYCLE
-     -------------------------------------------------------------------------- */
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -583,9 +598,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  /* --------------------------------------------------------------------------
-     3. FIRESTORE REAL-TIME LISTENERS & INITIAL SEEDING
-     -------------------------------------------------------------------------- */
   useEffect(() => {
     if (!user) return;
 
@@ -637,8 +649,8 @@ export default function App() {
                 course: "COSC 311",
                 building: "Sill Hall",
                 time: "MW 10:00 AM",
-                lng: -83.6215,
-                lat: 42.2482,
+                lng: -83.6193,
+                lat: 42.2484,
               },
             ],
           };
@@ -727,100 +739,12 @@ export default function App() {
     };
   }, [user]);
 
-  /* --------------------------------------------------------------------------
-     4. PLOT ACTIVE TAB PINS ON ARCGIS MAP AUTOMATICALLY
-     -------------------------------------------------------------------------- */
-  useEffect(() => {
-    if (!mapReady || !graphicsLayerRef.current || !graphicClassRef.current) return;
-
-    const gLayer = graphicsLayerRef.current;
-    const Graphic = graphicClassRef.current;
-    gLayer.removeAll();
-
-    let itemsToPlot = [];
-    if (activeTab === "Events") {
-      itemsToPlot = events.map((e) => ({
-        title: e.title,
-        subtitle: `${e.badge} • ${e.location}`,
-        lng: e.lng,
-        lat: e.lat,
-        color: [0, 102, 51],
-      }));
-    } else if (activeTab === "Food") {
-      itemsToPlot = EMU_FOOD_LOCATIONS.map((f) => ({
-        title: f.name,
-        subtitle: `${f.tag} • ${f.hours}`,
-        lng: f.lng,
-        lat: f.lat,
-        color: [234, 88, 12],
-      }));
-    } else if (activeTab === "Classes") {
-      itemsToPlot = EMU_ACADEMIC_BUILDINGS.map((b) => ({
-        title: `${b.name} (${b.code})`,
-        subtitle: b.departments,
-        lng: b.lng,
-        lat: b.lat,
-        color: [37, 99, 235],
-      }));
-    } else if (activeTab === "Attractions") {
-      itemsToPlot = EMU_ATTRACTIONS.map((a) => ({
-        title: a.name,
-        subtitle: a.category,
-        lng: a.lng,
-        lat: a.lat,
-        color: [147, 51, 234],
-      }));
-    } else if (activeTab === "POIs") {
-      itemsToPlot = EMU_POIS.map((p) => ({
-        title: p.name,
-        subtitle: `${p.type} • ${p.hours}`,
-        lng: p.lng,
-        lat: p.lat,
-        color: [220, 38, 38],
-      }));
-    } else if (activeTab === "REQUESTS") {
-      itemsToPlot = requests.map((r) => ({
-        title: `[Pending] ${r.title}`,
-        subtitle: r.location,
-        lng: r.lng,
-        lat: r.lat,
-        color: [234, 179, 8],
-      }));
-    }
-
-    itemsToPlot.forEach((item) => {
-      if (typeof item.lng === "number" && typeof item.lat === "number") {
-        const pin = new Graphic({
-          geometry: { type: "point", longitude: item.lng, latitude: item.lat },
-          symbol: {
-            type: "simple-marker",
-            color: item.color,
-            outline: { color: [255, 255, 255], width: 2 },
-            size: 12,
-          },
-          attributes: {
-            Title: item.title,
-            Details: item.subtitle,
-          },
-          popupTemplate: {
-            title: "{Title}",
-            content: "{Details}",
-          },
-        });
-        gLayer.add(pin);
-      }
-    });
-  }, [mapReady, activeTab, events, requests]);
-
   useEffect(() => {
     if (activeTab === "Chats" && chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [chatMessages, activeTab]);
 
-  /* --------------------------------------------------------------------------
-     5. HELPER FUNCTIONS: Notifications, Swoop Buddy, XP, Map Locate
-     -------------------------------------------------------------------------- */
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -837,10 +761,18 @@ export default function App() {
         utterance.pitch = 1.18;
         utterance.rate = 1.03;
         window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        // Ignore browser speech restriction if triggered before interaction
-      }
+      } catch (e) {}
     }
+  };
+
+  const toggleVoice = () => {
+    setVoiceEnabled((prev) => {
+      const next = !prev;
+      if (!next && typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      return next;
+    });
   };
 
   const handleBuddyClick = () => {
@@ -904,34 +836,121 @@ export default function App() {
     }
   };
 
-  const handleLocateItem = (lng, lat, label) => {
-    if (!mapViewRef.current || !graphicsLayerRef.current || !graphicClassRef.current) {
+  const handleLocateItem = async (lng, lat, label, buildingQuery) => {
+    if (!mapViewRef.current || !webMapRef.current) {
       showToast("Map is still initializing—try again in a moment!");
       return;
     }
 
-    mapViewRef.current.goTo({ center: [lng, lat], zoom: 18 }, { duration: 1000 });
+    const rawTarget = (buildingQuery || label || "").split("(")[0].trim();
+    const lowerRaw = rawTarget.toLowerCase();
 
-    const Graphic = graphicClassRef.current;
-    const highlightPin = new Graphic({
-      geometry: { type: "point", longitude: lng, latitude: lat },
-      symbol: {
-        type: "simple-marker",
-        color: [0, 102, 51],
-        outline: { color: [250, 204, 21], width: 3 },
-        size: 18,
-      },
-      attributes: { Title: label },
-      popupTemplate: { title: "{Title}", content: "Selected EMU Campus Location" },
-    });
+    const extraAliases = [];
+    if (lowerRaw.includes("halle") || lowerRaw.includes("library")) {
+      extraAliases.push("Hall-E", "Halle Library", "Library");
+    }
+    if (lowerRaw.includes("eateries")) {
+      extraAliases.push("Eastern Eateries", "Eateries");
+    }
+    if (lowerRaw.includes("commons")) {
+      extraAliases.push("The Commons", "Commons");
+    }
+    if (lowerRaw.includes("crossroads")) {
+      extraAliases.push("Crossroads Marketplace", "Crossroads");
+    }
+    if (lowerRaw.includes("student center")) {
+      extraAliases.push("EMU Student Center", "Student Center");
+    }
 
-    graphicsLayerRef.current.add(highlightPin);
+    const candidateTerms = Array.from(
+      new Set(
+        [
+          rawTarget,
+          rawTarget.replace(/^EMU\s+/i, "").trim(),
+          rawTarget.replace(/^Bruce T\.\s+/i, "").trim(),
+          rawTarget.replace(/\s+Science Complex$/i, "").trim(),
+          rawTarget.replace(/\s+Building$/i, "").trim(),
+          ...extraAliases,
+        ].filter(Boolean)
+      )
+    );
+
+    let matchedFeature = null;
+
+    try {
+      await webMapRef.current.when();
+      const featureLayers = webMapRef.current.allLayers
+        .toArray()
+        .filter((l) => l.type === "feature");
+
+      const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      for (const layer of featureLayers) {
+        if (matchedFeature) break;
+        try {
+          await layer.load();
+          const result = await layer.queryFeatures({
+            where: "1=1",
+            outFields: ["*"],
+            returnGeometry: true,
+            outSpatialReference: mapViewRef.current.spatialReference,
+          });
+
+          const features = result.features || [];
+          for (const term of candidateTerms) {
+            const lowerTerm = term.toLowerCase();
+            const normTerm = normalize(term);
+            const found = features.find((feat) =>
+              Object.values(feat.attributes || {}).some((val) => {
+                if (typeof val !== "string") return false;
+                const attrLower = val.trim().toLowerCase();
+                const normAttr = normalize(val);
+                return (
+                  attrLower.includes(lowerTerm) ||
+                  (attrLower.length >= 4 && lowerTerm.includes(attrLower)) ||
+                  (normAttr.length >= 4 &&
+                    (normAttr.includes(normTerm) || normTerm.includes(normAttr)))
+                );
+              })
+            );
+            if (found) {
+              matchedFeature = found;
+              break;
+            }
+          }
+        } catch (layerErr) {}
+      }
+    } catch (err) {
+      console.error("ArcGIS building lookup error:", err);
+    }
+
+    if (matchedFeature && matchedFeature.geometry) {
+      const geom = matchedFeature.geometry;
+      const centerPoint = geom.extent ? geom.extent.center : geom;
+      await mapViewRef.current.goTo({ target: centerPoint, zoom: 18 }, { duration: 900 });
+      mapViewRef.current.openPopup({
+        features: [matchedFeature],
+        location: centerPoint,
+      });
+    } else {
+      const verifiedMatch = candidateTerms
+        .map((t) => VERIFIED_EMU_COORDS[t.toLowerCase()])
+        .find(Boolean);
+
+      const finalLng = verifiedMatch ? verifiedMatch.lng : lng;
+      const finalLat = verifiedMatch ? verifiedMatch.lat : lat;
+
+      if (typeof finalLng === "number" && typeof finalLat === "number") {
+        await mapViewRef.current.goTo(
+          { center: [finalLng, finalLat], zoom: 18 },
+          { duration: 900 }
+        );
+      }
+    }
+
     buddySay(`Pinpointed ${label} on the EMU campus map!`);
   };
 
-  /* --------------------------------------------------------------------------
-     6. EVENT ATTENDANCE (ONE-TIME XP LOCK) & GOOGLE CALENDAR SYNC
-     -------------------------------------------------------------------------- */
   const handleToggleAttending = async (ev) => {
     const isCurrentlyAttending = studentProfile.attendingEventIds.includes(ev.id);
     const hasAlreadyClaimedXP = studentProfile.claimedXpEventIds.includes(ev.id);
@@ -1007,9 +1026,6 @@ export default function App() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  /* --------------------------------------------------------------------------
-     7. CREATE EVENT & REQUEST APPROVAL WORKFLOW
-     -------------------------------------------------------------------------- */
   const handleCreateEventSubmit = async (e) => {
     e.preventDefault();
     const payload = {
@@ -1017,8 +1033,8 @@ export default function App() {
       time: newEventForm.time,
       badge: newEventForm.badge,
       location: newEventForm.location.trim(),
-      lng: parseFloat(newEventForm.lng) || -83.6242,
-      lat: parseFloat(newEventForm.lat) || 42.2472,
+      lng: parseFloat(newEventForm.lng) || -83.6273,
+      lat: parseFloat(newEventForm.lat) || 42.2507,
       image:
         newEventForm.image.trim() ||
         "https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=600&q=80",
@@ -1038,8 +1054,8 @@ export default function App() {
         time: "2026-11-25T17:00",
         badge: "Social",
         location: "EMU Student Center",
-        lng: -83.6242,
-        lat: 42.2472,
+        lng: -83.6273,
+        lat: 42.2507,
         image:
           "https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=600&q=80",
         desc: "",
@@ -1095,9 +1111,6 @@ export default function App() {
     }
   };
 
-  /* --------------------------------------------------------------------------
-     8. STUDENT CLASS SCHEDULE BUILDER
-     -------------------------------------------------------------------------- */
   const handleAddClass = async (e) => {
     e.preventDefault();
     if (!newClassForm.course.trim()) return;
@@ -1160,9 +1173,6 @@ export default function App() {
     }
   };
 
-  /* --------------------------------------------------------------------------
-     9. REAL-TIME CAMPUS CHAT
-     -------------------------------------------------------------------------- */
   const handleSendChat = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -1190,9 +1200,6 @@ export default function App() {
     }
   };
 
-  /* --------------------------------------------------------------------------
-     10. STUDENT ACCOUNT AUTHENTICATION (SIGN UP / LOGIN / LOGOUT)
-     -------------------------------------------------------------------------- */
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -1270,9 +1277,6 @@ export default function App() {
     }
   };
 
-  /* --------------------------------------------------------------------------
-     11. METEORITE SCREEN DESTRUCTION EASTER EGG
-     -------------------------------------------------------------------------- */
   const triggerMeteorites = () => {
     buddySay("MAYDAY! Meteorites incoming! Campus portal core collapsing!");
     setIsDestroying(true);
@@ -1280,7 +1284,8 @@ export default function App() {
     for (let i = 0; i < 16; i++) {
       setTimeout(() => {
         const id = `${Date.now()}-${Math.random()}`;
-        const left = Math.random() * (typeof window !== "undefined" ? window.innerWidth : 1200);
+        const left =
+          Math.random() * (typeof window !== "undefined" ? window.innerWidth : 1200);
         setMeteorites((prev) => [...prev, { id, left }]);
 
         setTimeout(() => {
@@ -1303,7 +1308,6 @@ export default function App() {
         isDestroying ? "portal-destroying" : ""
       }`}
     >
-      {/* Meteorite Shower Overlay */}
       {meteorites.map((m) => (
         <div
           key={m.id}
@@ -1312,7 +1316,6 @@ export default function App() {
         />
       ))}
 
-      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 bg-emu-dark text-white px-4 py-2.5 rounded-xl shadow-2xl border border-yellow-400 text-xs font-bold flex items-center space-x-2">
           <Sparkles className="w-4 h-4 text-yellow-400" />
@@ -1320,12 +1323,8 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================================
-          HEADER NAVIGATION BAR
-          ====================================================================== */}
       <header className="bg-emu-green text-white shadow-lg z-20">
         <div className="max-w-full mx-auto px-4 lg:px-6 py-3 flex flex-wrap justify-between items-center gap-3">
-          {/* Left: Logo & Campus Selector */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <GraduationCap className="w-7 h-7 text-yellow-400" />
@@ -1344,7 +1343,6 @@ export default function App() {
             </select>
           </div>
 
-          {/* Center: App Navigation Tabs */}
           <nav className="flex items-center space-x-1 overflow-x-auto">
             {NAV_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -1375,9 +1373,7 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Right: Student Account, Leveling System, Destroy & Settings */}
           <div className="flex items-center space-x-3">
-            {/* Student Account Pill */}
             {!authReady ? (
               <span className="text-xs text-green-200 px-2">Connecting...</span>
             ) : isSignedInStudent ? (
@@ -1404,7 +1400,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Leveling Badge */}
             <div className="flex items-center bg-emu-dark px-3 py-1 rounded-full border border-yellow-400/50">
               <Trophy className="w-4 h-4 text-yellow-400 mr-2" />
               <div>
@@ -1440,13 +1435,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* ======================================================================
-          MAIN SPLIT WORKSPACE (LEFT PANEL + RIGHT ARCGIS MAP)
-          ====================================================================== */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Left Side: Dynamic Tab Content */}
         <div className="w-full md:w-1/2 p-5 overflow-y-auto emu-scrollbar border-r border-gray-200 bg-gray-50 flex flex-col">
-          {/* TAB 1: EVENTS */}
           {activeTab === "Events" && (
             <>
               <div className="flex justify-between items-center mb-5">
@@ -1531,7 +1521,9 @@ export default function App() {
                             Details
                           </button>
                           <button
-                            onClick={() => handleLocateItem(ev.lng, ev.lat, ev.title)}
+                            onClick={() =>
+                              handleLocateItem(ev.lng, ev.lat, ev.title, ev.location)
+                            }
                             className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-emu-green text-xs font-bold rounded"
                           >
                             Locate
@@ -1553,7 +1545,6 @@ export default function App() {
             </>
           )}
 
-          {/* TAB 2: FOOD */}
           {activeTab === "Food" && (
             <div className="space-y-4 pb-20">
               <div className="flex items-center justify-between mb-2">
@@ -1594,7 +1585,9 @@ export default function App() {
                       <p className="text-gray-500">{spot.payment}</p>
                     </div>
                     <button
-                      onClick={() => handleLocateItem(spot.lng, spot.lat, spot.name)}
+                      onClick={() =>
+                        handleLocateItem(spot.lng, spot.lat, spot.name, spot.name)
+                      }
                       className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white font-bold rounded-lg flex items-center space-x-1"
                     >
                       <MapPin className="w-3.5 h-3.5" />
@@ -1606,7 +1599,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: CLASSES */}
           {activeTab === "Classes" && (
             <div className="space-y-5 pb-20">
               <div className="flex items-center space-x-2">
@@ -1616,7 +1608,6 @@ export default function App() {
                 </h2>
               </div>
 
-              {/* Personal Class Schedule Builder */}
               <div className="bg-white rounded-xl p-4 shadow-sm border border-green-200">
                 <h3 className="text-sm font-extrabold text-emu-dark mb-3">
                   My EMU Class Schedule (+15 XP per class)
@@ -1685,7 +1676,8 @@ export default function App() {
                             handleLocateItem(
                               cls.lng,
                               cls.lat,
-                              `${cls.course} - ${cls.building}`
+                              `${cls.course} - ${cls.building}`,
+                              cls.building
                             )
                           }
                           className="text-emu-green font-bold hover:underline"
@@ -1705,7 +1697,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Academic Buildings Directory */}
               <div className="space-y-3">
                 {EMU_ACADEMIC_BUILDINGS.map((b) => (
                   <div
@@ -1725,7 +1716,7 @@ export default function App() {
                         </p>
                       </div>
                       <button
-                        onClick={() => handleLocateItem(b.lng, b.lat, b.name)}
+                        onClick={() => handleLocateItem(b.lng, b.lat, b.name, b.name)}
                         className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-emu-green text-xs font-bold rounded-lg flex items-center space-x-1"
                       >
                         <MapPin className="w-3.5 h-3.5" />
@@ -1740,7 +1731,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: ATTRACTIONS */}
           {activeTab === "Attractions" && (
             <div className="space-y-4 pb-20">
               <div className="flex items-center space-x-2 mb-2">
@@ -1771,7 +1761,9 @@ export default function App() {
                   </p>
                   <div className="flex justify-end pt-2 border-t border-gray-100">
                     <button
-                      onClick={() => handleLocateItem(attr.lng, attr.lat, attr.name)}
+                      onClick={() =>
+                        handleLocateItem(attr.lng, attr.lat, attr.name, attr.name)
+                      }
                       className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
                     >
                       <MapPin className="w-3.5 h-3.5" />
@@ -1783,7 +1775,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 5: POIs */}
           {activeTab === "POIs" && (
             <div className="space-y-4 pb-20">
               <div className="flex items-center space-x-2 mb-2">
@@ -1812,7 +1803,9 @@ export default function App() {
                   <p className="text-xs text-gray-700 my-2 leading-relaxed">{poi.desc}</p>
                   <div className="flex justify-end pt-2 border-t border-gray-100">
                     <button
-                      onClick={() => handleLocateItem(poi.lng, poi.lat, poi.name)}
+                      onClick={() =>
+                        handleLocateItem(poi.lng, poi.lat, poi.name, poi.name)
+                      }
                       className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
                     >
                       <MapPin className="w-3.5 h-3.5" />
@@ -1824,7 +1817,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 6: CHATS */}
           {activeTab === "Chats" && (
             <div className="flex flex-col h-full pb-20">
               <div className="flex items-center justify-between mb-3">
@@ -1902,7 +1894,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 7: REQUESTS */}
           {activeTab === "REQUESTS" && (
             <div className="space-y-4 pb-20">
               <div className="flex items-center justify-between mb-2">
@@ -1958,7 +1949,9 @@ export default function App() {
 
                       <div className="flex justify-end space-x-2 mt-3 pt-2 border-t border-gray-100">
                         <button
-                          onClick={() => handleLocateItem(req.lng, req.lat, req.title)}
+                          onClick={() =>
+                            handleLocateItem(req.lng, req.lat, req.title, req.location)
+                          }
                           className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg"
                         >
                           Locate
@@ -1986,7 +1979,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Right Side: ArcGIS Map */}
         <div className="w-full md:w-1/2 relative h-80 md:h-auto">
           <div id="emuMapView" ref={mapContainerRef} />
           <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow border border-gray-200 text-[11px] font-bold text-emu-dark flex items-center space-x-1.5">
@@ -1996,9 +1988,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* ======================================================================
-          INTERACTIVE SWOOP BUDDY (BOTTOM LEFT)
-          ====================================================================== */}
       <div className="fixed bottom-4 left-4 z-40 flex items-end space-x-3 pointer-events-none">
         <button
           onClick={handleBuddyClick}
@@ -2013,7 +2002,7 @@ export default function App() {
               Swoop Campus Guide
             </span>
             <button
-              onClick={() => setVoiceEnabled((v) => !v)}
+              onClick={toggleVoice}
               className="text-gray-400 hover:text-emu-green"
               title={voiceEnabled ? "Mute Voice" : "Unmute Voice"}
             >
@@ -2028,9 +2017,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* ======================================================================
-          MODAL 1: EVENT DETAILS
-          ====================================================================== */}
       {selectedEventModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-t-8 border-emu-green">
@@ -2085,9 +2071,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================================
-          MODAL 2: CREATE CAMPUS EVENT
-          ====================================================================== */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border-t-8 border-emu-green max-h-[90vh] overflow-y-auto">
@@ -2245,9 +2228,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================================
-          MODAL 3: STUDENT ACCOUNT SIGN IN / SIGN UP
-          ====================================================================== */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border-t-8 border-emu-green">
@@ -2383,9 +2363,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================================
-          MODAL 4: PORTAL SETTINGS
-          ====================================================================== */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border-t-8 border-emu-green">
@@ -2419,7 +2396,7 @@ export default function App() {
                   Swoop Buddy Voice Synthesis
                 </span>
                 <button
-                  onClick={() => setVoiceEnabled((v) => !v)}
+                  onClick={toggleVoice}
                   className={`px-3 py-1 rounded-full font-bold ${
                     voiceEnabled
                       ? "bg-emu-green text-white"

@@ -115,7 +115,7 @@ const SEED_EVENTS = [
     badge: "Sports",
     attendingCount: 142,
     image:
-      "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80",
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/WaltDrone4_081524.jpg/960px-WaltDrone4_081524.jpg",
     desc: "Come support the Eagles at The Factory! Free food, live DJ music, and lawn games before kickoff.",
   },
   {
@@ -213,18 +213,7 @@ const EMU_FOOD_LOCATIONS = [
     lng: -83.6273,
     lat: 42.2507,
   },
-  {
-    id: "food-3",
-    name: "Halle Library",
-    address: "955 W Circle Dr (1st Floor)",
-    hours: "8:00 AM – 11:00 PM",
-    payment: "Dining Dollars • Card",
-    highlights:
-      "Freshly brewed coffee, espresso drinks, warm pastries, and grab-and-go wraps for study sessions.",
-    tag: "Cafe",
-    lng: -83.6256,
-    lat: 42.2473,
-  },
+ 
   {
     id: "food-4",
     name: "Crossroads Marketplace",
@@ -367,7 +356,7 @@ const EMU_POIS = [
   },
   {
     id: "poi-2",
-    name: "Snow Health Center",
+    name: "CAPS (Counseling & Psychological Services)",
     type: "Health & Counseling",
     hours: "Mon–Fri 8:00 AM – 5:00 PM",
     contact: "(734) 487-1122",
@@ -397,7 +386,7 @@ const EMU_POIS = [
   },
   {
     id: "poi-5",
-    name: "Bruce T. Halle Library",
+    name: "Halle Library",
     type: "Library & IT Helpdesk",
     hours: "Open 24/5 During Semesters",
     contact: "(734) 487-0020",
@@ -433,8 +422,8 @@ export default function App() {
       {
         id: "c-init-1",
         course: "COSC 311",
-        building: "Sill Hall",
-        time: "MW 10:00 AM",
+        building: "Pray-Harold",
+        time: "MW 10:00 AM - 11:50 AM",
         lng: -83.6193,
         lat: 42.2484,
       },
@@ -647,8 +636,8 @@ export default function App() {
               {
                 id: "c-init-1",
                 course: "COSC 311",
-                building: "Sill Hall",
-                time: "MW 10:00 AM",
+                building: "Pray Harold",
+                time: "MW 10:00 AM - 11:50 AM",
                 lng: -83.6193,
                 lat: 42.2484,
               },
@@ -688,7 +677,22 @@ export default function App() {
           }
           return;
         }
-        const loadedEvents = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const fixedRynearsonImg =
+          "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/WaltDrone4_081524.jpg/960px-WaltDrone4_081524.jpg";
+        const loadedEvents = snapshot.docs.map((d) => {
+          const data = d.data();
+          if (
+            typeof data.image === "string" &&
+            data.image.includes("google.com/imgres")
+          ) {
+            updateDoc(
+              doc(db, "artifacts", appId, "public", "data", "events", d.id),
+              { image: fixedRynearsonImg }
+            ).catch(() => {});
+            return { id: d.id, ...data, image: fixedRynearsonImg };
+          }
+          return { id: d.id, ...data };
+        });
         loadedEvents.sort((a, b) => new Date(a.time) - new Date(b.time));
         setEvents(loadedEvents);
       },
@@ -860,6 +864,9 @@ export default function App() {
     }
     if (lowerRaw.includes("student center")) {
       extraAliases.push("EMU Student Center", "Student Center");
+    }
+    if(lowerRaw.includes("rec/im") || lowerRaw.includes("rec im")) {
+      extraAliases.push("Rec/IM", "Rec IM", "Recreation & Intramural Center");
     }
 
     const candidateTerms = Array.from(
@@ -1245,7 +1252,7 @@ export default function App() {
           displayName,
           major: authForm.major || "Undecided",
         }));
-        buddySay(`Welcome to EMU Campus Portal, ${displayName}!`);
+        buddySay(`Welcome to EMU Info Map, ${displayName}!`);
         showToast("Student account created and signed in!");
       } else {
         await signInWithEmailAndPassword(
@@ -1328,7 +1335,7 @@ export default function App() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <GraduationCap className="w-7 h-7 text-yellow-400" />
-              <span className="font-bold text-xl tracking-wide">EMU PORTAL</span>
+              <span className="font-bold text-xl tracking-wide">EMU Info Map</span>
             </div>
             <select
               value={selectedCampus}
@@ -1534,7 +1541,7 @@ export default function App() {
                               isAttending ? "bg-yellow-500 text-emu-dark" : "bg-emu-green text-white"
                             } hover:opacity-90 text-xs font-black rounded tracking-wider shadow`}
                           >
-                            {isAttending ? "ATTENDING!" : "ATTENDING!!!"}
+                            {isAttending ? "You're attending!" : "Attend?"}
                           </button>
                         </div>
                       </div>
@@ -1983,8 +1990,7 @@ export default function App() {
           <div id="emuMapView" ref={mapContainerRef} />
           <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow border border-gray-200 text-[11px] font-bold text-emu-dark flex items-center space-x-1.5">
             <Navigation className="w-3.5 h-3.5 text-emu-green" />
-            <span>ArcGIS Live • {activeTab} Layer</span>
-          </div>
+s          </div>
         </div>
       </div>
 
@@ -2062,8 +2068,8 @@ export default function App() {
                   className="px-5 py-2 bg-emu-green text-white rounded-lg text-sm font-bold hover:bg-emu-dark shadow"
                 >
                   {studentProfile.attendingEventIds.includes(selectedEventModal.id)
-                    ? "ATTENDING!"
-                    : "ATTENDING!!!"}
+                    ? "You're attending!"
+                    : "Attend?"}
                 </button>
               </div>
             </div>

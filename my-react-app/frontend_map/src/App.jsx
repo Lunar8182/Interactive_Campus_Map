@@ -359,6 +359,59 @@ const NAV_TABS = [
   { id: "Chats", label: "Chats" },
 ];
 
+const DEFAULT_CATALOG_TERMS = [
+  { term: "202710", termDesc: "Fall 2026" },
+  { term: "202720", termDesc: "Winter 2027" },
+];
+const DEFAULT_TERM_CODE = "202710";
+const INITIAL_FALL_CLASSES = [
+  {
+    id: "c-init-1",
+    term: "202710",
+    course: "COSC 311",
+    building: "Pray-Harrold",
+    time: "MW 10:00 AM - 11:50 AM",
+    lng: -83.6223,
+    lat: 42.2494,
+  },
+];
+
+function normalizeSchedulesByTerm(data, fallbackSchedules) {
+  const base = { "202710": [], "202720": [] };
+  if (
+    data?.savedSchedulesByTerm &&
+    typeof data.savedSchedulesByTerm === "object" &&
+    !Array.isArray(data.savedSchedulesByTerm)
+  ) {
+    for (const [termKey, list] of Object.entries(data.savedSchedulesByTerm)) {
+      if (Array.isArray(list)) {
+        base[termKey] = list.map((cls) => ({
+          ...cls,
+          term: cls.term || termKey,
+        }));
+      }
+    }
+    return base;
+  }
+  if (Array.isArray(data?.savedClasses)) {
+    for (const cls of data.savedClasses) {
+      const termKey = cls.term || DEFAULT_TERM_CODE;
+      if (!Array.isArray(base[termKey])) {
+        base[termKey] = [];
+      }
+      base[termKey].push({ ...cls, term: termKey });
+    }
+    return base;
+  }
+  return fallbackSchedules || { "202710": INITIAL_FALL_CLASSES, "202720": [] };
+}
+
+function flattenSchedulesByTerm(schedulesByTerm) {
+  return Object.entries(schedulesByTerm || {}).flatMap(([termKey, list]) =>
+    Array.isArray(list) ? list.map((c) => ({ ...c, term: c.term || termKey })) : []
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState("Events");
   const [selectedCampus, setSelectedCampus] = useState("Eastern Michigan University");
@@ -376,16 +429,11 @@ export default function App() {
     xp: 65,
     attendingEventIds: [],
     claimedXpEventIds: [],
-    savedClasses: [
-      {
-        id: "c-init-1",
-        course: "COSC 311",
-        building: "Pray-Harrold",
-        time: "MW 10:00 AM - 11:50 AM",
-        lng: -83.6193,
-        lat: 42.2484,
-      },
-    ],
+    savedSchedulesByTerm: {
+      "202710": INITIAL_FALL_CLASSES,
+      "202720": [],
+    },
+    savedClasses: INITIAL_FALL_CLASSES,
   });
 
   const [events, setEvents] = useState(() =>
@@ -730,23 +778,32 @@ export default function App() {
       async (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          setStudentProfile((prev) => ({
-            ...prev,
-            displayName: user.displayName || data.displayName || "Eagle Student",
-            major: data.major || prev.major,
-            level: typeof data.level === "number" ? data.level : 5,
-            xp: typeof data.xp === "number" ? data.xp : 65,
-            attendingEventIds: Array.isArray(data.attendingEventIds)
-              ? data.attendingEventIds
-              : [],
-            claimedXpEventIds: Array.isArray(data.claimedXpEventIds)
-              ? data.claimedXpEventIds
-              : [],
-            savedClasses: Array.isArray(data.savedClasses)
-              ? data.savedClasses
-              : prev.savedClasses,
-          }));
+          setStudentProfile((prev) => {
+            const normalizedSchedules = normalizeSchedulesByTerm(
+              data,
+              prev.savedSchedulesByTerm
+            );
+            return {
+              ...prev,
+              displayName: user.displayName || data.displayName || "Eagle Student",
+              major: data.major || prev.major,
+              level: typeof data.level === "number" ? data.level : 5,
+              xp: typeof data.xp === "number" ? data.xp : 65,
+              attendingEventIds: Array.isArray(data.attendingEventIds)
+                ? data.attendingEventIds
+                : [],
+              claimedXpEventIds: Array.isArray(data.claimedXpEventIds)
+                ? data.claimedXpEventIds
+                : [],
+              savedSchedulesByTerm: normalizedSchedules,
+              savedClasses: flattenSchedulesByTerm(normalizedSchedules),
+            };
+          });
         } else {
+          const initialSchedules = {
+            "202710": INITIAL_FALL_CLASSES,
+            "202720": [],
+          };
           const initialProfile = {
             displayName:
               user.displayName ||
@@ -757,16 +814,8 @@ export default function App() {
             xp: 65,
             attendingEventIds: [],
             claimedXpEventIds: [],
-            savedClasses: [
-              {
-                id: "c-init-1",
-                course: "COSC 311",
-                building: "Pray-Harrold",
-                time: "MW 10:00 AM - 11:50 AM",
-                lng: -83.6193,
-                lat: 42.2484,
-              },
-            ],
+            savedSchedulesByTerm: initialSchedules,
+            savedClasses: INITIAL_FALL_CLASSES,
           };
           await setDoc(profileDocRef, initialProfile, { merge: true });
         }
@@ -1401,6 +1450,39 @@ export default function App() {
     }
   };
 
+  const persistTermSchedules = async (updatedSchedulesByTerm) => {
+    const flattened = flattenSchedulesByTerm(updatedSchedulesByTerm);
+    setStudentProfile((prev) => ({
+      ...prev,
+      savedSchedulesByTerm: updatedSchedulesByTerm,
+      savedClasses: flattened,
+    }));
+
+    if (user) {
+      try {
+        const profileRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "profile",
+          "student_data"
+        );
+        await setDoc(
+          profileRef,
+          {
+            savedSchedulesByTerm: updatedSchedulesByTerm,
+            savedClasses: flattened,
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("Error saving class schedule:", err);
+      }
+    }
+  };
+
   const handleAddClass = async (e) => {
     e.preventDefault();
     if (!newClassForm.course.trim()) return;
@@ -1416,6 +1498,7 @@ export default function App() {
     classSeqRef.current += 1;
     const newEntry = {
       id: `cls-${classSeqRef.current}`,
+      term: selectedCatalogTerm,
       course: newClassForm.course.trim().toUpperCase(),
       building: isSpecialOnline ? "Online" : isSpecialTba ? "TBA" : buildingObj.name,
       time:
@@ -1428,32 +1511,23 @@ export default function App() {
       lat: buildingObj ? buildingObj.lat : null,
     };
 
-    const updatedClasses = [...studentProfile.savedClasses, newEntry];
-    setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
-    setNewClassForm({ course: "", building: "Pray-Harrold", time: "TR 11:00 AM" });
-    await awardXP(15, `Added ${newEntry.course} (${newEntry.building})! +15 XP!`);
+    const currentTermClasses =
+      studentProfile.savedSchedulesByTerm?.[selectedCatalogTerm] || [];
+    const updatedSchedulesByTerm = {
+      ...studentProfile.savedSchedulesByTerm,
+      [selectedCatalogTerm]: [...currentTermClasses, newEntry],
+    };
 
-    if (user) {
-      try {
-        const profileRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "users",
-          user.uid,
-          "profile",
-          "student_data"
-        );
-        await updateDoc(profileRef, { savedClasses: updatedClasses });
-      } catch (err) {
-        console.error("Error saving class schedule:", err);
-      }
-    }
+    setNewClassForm({ course: "", building: "Pray-Harrold", time: "TR 11:00 AM" });
+    await persistTermSchedules(updatedSchedulesByTerm);
+    await awardXP(15, `Added ${newEntry.course} (${newEntry.building})! +15 XP!`);
   };
 
   const handleAddCatalogSection = async (sec) => {
-    const alreadyAdded = studentProfile.savedClasses.some(
-      (c) => c.crn === sec.crn && c.term === selectedCatalogTerm
+    const currentTermClasses =
+      studentProfile.savedSchedulesByTerm?.[selectedCatalogTerm] || [];
+    const alreadyAdded = currentTermClasses.some(
+      (c) => c.crn === sec.crn && (c.term || selectedCatalogTerm) === selectedCatalogTerm
     );
     if (alreadyAdded) {
       showToast(`${sec.classId}-${sec.section} (CRN ${sec.crn}) is already in your schedule.`);
@@ -1482,52 +1556,27 @@ export default function App() {
       meetings: sec.meetings,
     };
 
-    const updatedClasses = [...studentProfile.savedClasses, newEntry];
-    setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
+    const updatedSchedulesByTerm = {
+      ...studentProfile.savedSchedulesByTerm,
+      [selectedCatalogTerm]: [...currentTermClasses, newEntry],
+    };
+
     setClassSearchQuery("");
+    await persistTermSchedules(updatedSchedulesByTerm);
     await awardXP(
       15,
       `Added ${newEntry.course}${newEntry.room ? ` (${newEntry.building} ${newEntry.room})` : ` (${newEntry.building})`}! +15 XP!`
     );
-
-    if (user) {
-      try {
-        const profileRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "users",
-          user.uid,
-          "profile",
-          "student_data"
-        );
-        await updateDoc(profileRef, { savedClasses: updatedClasses });
-      } catch (err) {
-        console.error("Error saving class schedule:", err);
-      }
-    }
   };
 
   const handleRemoveClass = async (classId) => {
-    const updatedClasses = studentProfile.savedClasses.filter((c) => c.id !== classId);
-    setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
-
-    if (user) {
-      try {
-        const profileRef = doc(
-          db,
-          "artifacts",
-          appId,
-          "users",
-          user.uid,
-          "profile",
-          "student_data"
-        );
-        await updateDoc(profileRef, { savedClasses: updatedClasses });
-      } catch (err) {
-        console.error("Error removing class:", err);
-      }
-    }
+    const currentTermClasses =
+      studentProfile.savedSchedulesByTerm?.[selectedCatalogTerm] || [];
+    const updatedSchedulesByTerm = {
+      ...studentProfile.savedSchedulesByTerm,
+      [selectedCatalogTerm]: currentTermClasses.filter((c) => c.id !== classId),
+    };
+    await persistTermSchedules(updatedSchedulesByTerm);
   };
 
   const handleSendChat = async (e) => {
@@ -1592,7 +1641,8 @@ export default function App() {
             xp: studentProfile.xp,
             attendingEventIds: studentProfile.attendingEventIds,
             claimedXpEventIds: studentProfile.claimedXpEventIds,
-            savedClasses: studentProfile.savedClasses,
+            savedSchedulesByTerm: studentProfile.savedSchedulesByTerm,
+            savedClasses: flattenSchedulesByTerm(studentProfile.savedSchedulesByTerm),
           },
           { merge: true }
         );
@@ -1956,7 +2006,17 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "Classes" && (
+          {activeTab === "Classes" && (() => {
+            const availableTerms = catalogIndex?.terms?.length
+              ? catalogIndex.terms
+              : DEFAULT_CATALOG_TERMS;
+            const activeTermMeta =
+              availableTerms.find((t) => t.term === selectedCatalogTerm) ||
+              availableTerms[0];
+            const activeTermClasses =
+              studentProfile.savedSchedulesByTerm?.[selectedCatalogTerm] || [];
+
+            return (
             <div className="space-y-5 pb-20">
               <div className="flex items-center space-x-2">
                 <BookOpen className="w-6 h-6 text-emu-green" />
@@ -1970,36 +2030,52 @@ export default function App() {
                   <h3 className="text-sm font-extrabold text-emu-dark">
                     My EMU Class Schedule (+15 XP per class)
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowManualClassForm((prev) => !prev)}
-                    className="text-xs font-bold text-emu-green hover:underline"
-                  >
-                    {showManualClassForm ? "Hide manual entry" : "Or add manually"}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="inline-flex bg-gray-100 p-0.5 rounded-lg border border-gray-200"
+                      role="tablist"
+                      aria-label="Semester Switcher"
+                    >
+                      {availableTerms.map((t) => {
+                        const isActive = t.term === selectedCatalogTerm;
+                        const count = (
+                          studentProfile.savedSchedulesByTerm?.[t.term] || []
+                        ).length;
+                        return (
+                          <button
+                            key={t.term}
+                            type="button"
+                            role="tab"
+                            aria-selected={isActive}
+                            onClick={() => setSelectedCatalogTerm(t.term)}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                              isActive
+                                ? "bg-emu-green text-white shadow-sm"
+                                : "text-gray-600 hover:text-emu-dark"
+                            }`}
+                          >
+                            {t.termDesc} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowManualClassForm((prev) => !prev)}
+                      className="text-xs font-bold text-emu-green hover:underline"
+                    >
+                      {showManualClassForm ? "Hide manual entry" : "Or add manually"}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
-                  <select
-                    value={selectedCatalogTerm}
-                    onChange={(e) => setSelectedCatalogTerm(e.target.value)}
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none bg-white"
-                  >
-                    {(catalogIndex?.terms || [
-                      { term: "202710", termDesc: "Fall 2026" },
-                      { term: "202720", termDesc: "Winter 2027" },
-                    ]).map((t) => (
-                      <option key={t.term} value={t.term}>
-                        {t.termDesc}
-                      </option>
-                    ))}
-                  </select>
+                <div className="mb-3">
                   <input
                     type="text"
-                    placeholder="Search EMU classes (e.g. COSC 411, CRN, title)..."
+                    placeholder={`Search ${activeTermMeta.termDesc} classes (e.g. COSC 411, CRN, title)...`}
                     value={classSearchQuery}
                     onChange={(e) => setClassSearchQuery(e.target.value)}
-                    className="sm:col-span-3 px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    className="w-full px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
                   />
                 </div>
 
@@ -2144,7 +2220,9 @@ export default function App() {
                 )}
 
                 <ClassScheduleTimeline
-                  savedClasses={studentProfile.savedClasses}
+                  key={selectedCatalogTerm}
+                  savedClasses={activeTermClasses}
+                  termLabel={activeTermMeta.termDesc}
                   onLocateClass={(cls) =>
                     handleLocateItem(
                       cls.lng,
@@ -2189,7 +2267,8 @@ export default function App() {
                 ))}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {activeTab === "Attractions" && (() => {
             const activeRegionMeta =

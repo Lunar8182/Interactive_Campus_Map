@@ -283,6 +283,7 @@ function getLocationBadge(cls) {
 
 export default function ClassScheduleTimeline({
   savedClasses,
+  termLabel,
   onLocateClass,
   onRemoveClass,
 }) {
@@ -322,6 +323,7 @@ export default function ClassScheduleTimeline({
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
           <span className="font-semibold text-emu-dark">
+            {termLabel ? `${termLabel} • ` : ""}
             {savedClasses.length} {savedClasses.length === 1 ? "class" : "classes"}
           </span>
           <span className="inline-flex items-center gap-1">
@@ -366,7 +368,11 @@ export default function ClassScheduleTimeline({
         </div>
       </div>
 
-      {viewMode === "timeline" ? (
+      {savedClasses.length === 0 ? (
+        <div className="border border-dashed border-gray-300 rounded-lg bg-gray-50/70 p-6 text-center text-xs text-gray-500">
+          No classes saved for <span className="font-bold text-emu-dark">{termLabel || "this semester"}</span> yet. Search above to add classes.
+        </div>
+      ) : viewMode === "timeline" ? (
         <>
           <div className="overflow-x-auto emu-scrollbar border border-gray-200 rounded-lg bg-white">
             <div className="min-w-[500px] max-h-[440px] overflow-y-auto emu-scrollbar">

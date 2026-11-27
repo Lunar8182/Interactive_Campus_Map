@@ -50,6 +50,7 @@ import {
   Navigation,
 } from "lucide-react";
 import ClassScheduleTimeline from "./components/ClassScheduleTimeline";
+import { ATTRACTION_REGIONS, ATTRACTIONS_BY_REGION } from "./data/attractions";
 import "./App.css";
 
 const firebaseConfig = {
@@ -296,54 +297,6 @@ const EMU_ACADEMIC_BUILDINGS = [
   },
 ];
 
-const EMU_ATTRACTIONS = [
-  {
-    id: "attr-1",
-    name: "Rynearson Stadium",
-    category: "Athletics",
-    established: "1969 • Capacity 30,200",
-    desc: "Home of EMU Eagles Football, renowned nationwide for its signature gray FieldTurf.",
-    lng: -83.6473,
-    lat: 42.2558,
-  },
-  {
-    id: "attr-2",
-    name: "George Gervin GameAbove Center",
-    category: "Arena & Events",
-    established: "1998 • Capacity 8,824",
-    desc: "Premier multi-purpose arena hosting Eagles Men’s & Women’s Basketball, concerts, and commencement.",
-    lng: -83.6458,
-    lat: 42.2536,
-  },
-  {
-    id: "attr-3",
-    name: "Pease Auditorium",
-    category: "Historic Landmark",
-    established: "1914 • Neoclassical Architecture",
-    desc: "Historic concert hall hosting School of Music symphonies, guest lectures, and cultural showcases.",
-    lng: -83.6197,
-    lat: 42.2465,
-  },
-  {
-    id: "attr-4",
-    name: "McKenny Hall",
-    category: "Historic Union",
-    established: "1931 • Collegiate Gothic",
-    desc: "Historic landmark on Cross Street that opened as the first student union at a teachers college in the US.",
-    lng: -83.6214,
-    lat: 42.2464,
-  },
-  {
-    id: "attr-5",
-    name: "University Park",
-    category: "Campus Nature",
-    established: "Central Campus Oasis",
-    desc: "Scenic campus pond, fountain, walking trails, and outdoor amphitheater beside the Student Center.",
-    lng: -83.6247,
-    lat: 42.2494,
-  },
-];
-
 const EMU_POIS = [
   {
     id: "poi-1",
@@ -409,6 +362,10 @@ const NAV_TABS = [
 export default function App() {
   const [activeTab, setActiveTab] = useState("Events");
   const [selectedCampus, setSelectedCampus] = useState("Eastern Michigan University");
+  const [attractionRegion, setAttractionRegion] = useState("Campus");
+  const [selectedAttractionId, setSelectedAttractionId] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [blinkMarkerPos, setBlinkMarkerPos] = useState(null);
 
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -494,6 +451,11 @@ export default function App() {
   const mapContainerRef = useRef(null);
   const webMapRef = useRef(null);
   const mapViewRef = useRef(null);
+  const esriModulesRef = useRef(null);
+  const attractionsLayerRef = useRef(null);
+  const blinkTargetRef = useRef(null);
+  const syncBlinkPositionRef = useRef(null);
+  const mapWatchHandlesRef = useRef([]);
   const hasSeededRef = useRef(false);
   const chatEndRef = useRef(null);
   const classSeqRef = useRef(0);
@@ -511,15 +473,29 @@ export default function App() {
       if (!window.require || !mapContainerRef.current || mapViewRef.current) return;
 
       window.require(
-        ["esri/WebMap", "esri/views/MapView"],
-        (WebMap, MapView) => {
+        [
+          "esri/WebMap",
+          "esri/views/MapView",
+          "esri/layers/GraphicsLayer",
+          "esri/Graphic",
+          "esri/geometry/Point",
+        ],
+        (WebMap, MapView, GraphicsLayer, Graphic, Point) => {
           if (!mapContainerRef.current || mapViewRef.current) return;
+
+          esriModulesRef.current = { GraphicsLayer, Graphic, Point };
 
           const webMap = new WebMap({
             portalItem: { id: "bf9349e436fd4cdca9f01a2b94390f81" },
           });
 
+          const attractionsLayer = new GraphicsLayer({ id: "attractions-layer" });
+          attractionsLayerRef.current = attractionsLayer;
+
           webMap.when(() => {
+            if (!webMap.layers.includes(attractionsLayer)) {
+              webMap.add(attractionsLayer);
+            }
             webMap.allLayers.forEach((layer) => {
               if (layer.type === "feature") {
                 layer.when(() => {
@@ -546,6 +522,75 @@ export default function App() {
             zoom: CAMPUS_VIEWS["Eastern Michigan University"].zoom,
           });
 
+          const syncBlinkPosition = () => {
+            const target = blinkTargetRef.current;
+            if (!target || !mapViewRef.current) {
+              setBlinkMarkerPos(null);
+              return;
+            }
+            const screenPt = mapViewRef.current.toScreen(target.point);
+            if (!screenPt) {
+              setBlinkMarkerPos(null);
+              return;
+            }
+            const width = mapViewRef.current.width || 0;
+            const height = mapViewRef.current.height || 0;
+            const visible =
+              screenPt.x >= -24 &&
+              screenPt.y >= -24 &&
+              screenPt.x <= width + 24 &&
+              screenPt.y <= height + 24;
+            setBlinkMarkerPos({
+              x: screenPt.x,
+              y: screenPt.y,
+              visible,
+              label: target.label,
+              triggerKey: target.triggerKey,
+            });
+          };
+          syncBlinkPositionRef.current = syncBlinkPosition;
+
+          view.when(() => {
+            if (view.constraints?.geometry) {
+              view.constraints.geometry = null;
+            }
+            const extentHandle = view.watch("extent", syncBlinkPosition);
+            const sizeHandle = view.watch("size", syncBlinkPosition);
+            const popupHandle = view.popup?.watch("visible", (isVisible, wasVisible) => {
+              if (wasVisible && !isVisible) {
+                blinkTargetRef.current = null;
+                setBlinkMarkerPos(null);
+              }
+            });
+            const clickHandle = view.on("click", async (event) => {
+              if (!attractionsLayerRef.current) return;
+              try {
+                const hit = await view.hitTest(event, { include: attractionsLayerRef.current });
+                const matched = hit.results?.find(
+                  (r) => r.graphic?.attributes?.attractionId
+                );
+                if (matched) {
+                  const { attractionId, attractionName } = matched.graphic.attributes;
+                  setSelectedAttractionId(attractionId);
+                  blinkTargetRef.current = {
+                    point: matched.graphic.geometry,
+                    label: attractionName,
+                    triggerKey: Date.now(),
+                  };
+                  syncBlinkPosition();
+                }
+              } catch (err) {}
+            });
+
+            mapWatchHandlesRef.current = [
+              extentHandle,
+              sizeHandle,
+              popupHandle,
+              clickHandle,
+            ].filter(Boolean);
+            setMapReady(true);
+          });
+
           webMapRef.current = webMap;
           mapViewRef.current = view;
         }
@@ -569,12 +614,66 @@ export default function App() {
     }
 
     return () => {
+      mapWatchHandlesRef.current.forEach((h) => {
+        try {
+          h.remove();
+        } catch (e) {}
+      });
+      mapWatchHandlesRef.current = [];
       if (mapViewRef.current) {
         mapViewRef.current.destroy();
         mapViewRef.current = null;
       }
+      setMapReady(false);
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !attractionsLayerRef.current || !esriModulesRef.current) return;
+    const layer = attractionsLayerRef.current;
+    const { Graphic, Point } = esriModulesRef.current;
+    layer.removeAll();
+
+    if (activeTab !== "Attractions") return;
+
+    const list = ATTRACTIONS_BY_REGION[attractionRegion] || [];
+    const graphics = list.map((attr) => {
+      const isSelected = selectedAttractionId === attr.id;
+      return new Graphic({
+        geometry: new Point({
+          longitude: attr.lng,
+          latitude: attr.lat,
+        }),
+        symbol: {
+          type: "simple-marker",
+          style: "circle",
+          color: isSelected ? "#facc15" : "#006633",
+          size: isSelected ? "14px" : "11px",
+          outline: {
+            color: isSelected ? "#004d26" : "#ffffff",
+            width: isSelected ? 2.5 : 2,
+          },
+        },
+        attributes: {
+          attractionId: attr.id,
+          attractionName: attr.name,
+          region: attr.region,
+        },
+        popupTemplate: {
+          title: attr.name,
+          content: `
+            <div style="font-size:12px;line-height:1.45;">
+              <p style="margin:0 0 4px 0;font-weight:700;color:#006633;">${attr.category} • ${attr.established}</p>
+              <p style="margin:0 0 6px 0;color:#4b5563;"><strong>Address:</strong> ${attr.address}</p>
+              <p style="margin:0;color:#1f2937;">${attr.desc}</p>
+            </div>
+          `,
+        },
+      });
+    });
+
+    layer.addMany(graphics);
+  }, [activeTab, attractionRegion, selectedAttractionId, mapReady]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -894,8 +993,25 @@ export default function App() {
     }
   };
 
+  const clearBlinkMarker = () => {
+    blinkTargetRef.current = null;
+    setBlinkMarkerPos(null);
+  };
+
+  const triggerBlinkAtPoint = (point, label) => {
+    if (!point) return;
+    blinkTargetRef.current = {
+      point,
+      label,
+      triggerKey: Date.now(),
+    };
+    syncBlinkPositionRef.current?.();
+  };
+
   const handleCampusChange = (campusName) => {
     setSelectedCampus(campusName);
+    setSelectedAttractionId(null);
+    clearBlinkMarker();
     const target = CAMPUS_VIEWS[campusName];
     if (target && mapViewRef.current) {
       mapViewRef.current.goTo({ center: target.center, zoom: target.zoom }, { duration: 900 });
@@ -903,7 +1019,43 @@ export default function App() {
     }
   };
 
-  const handleLocateItem = async (lng, lat, label, buildingQuery) => {
+  const handleAttractionRegionChange = (regionId) => {
+    setAttractionRegion(regionId);
+    setSelectedAttractionId(null);
+    clearBlinkMarker();
+    const regionCfg = ATTRACTION_REGIONS.find((r) => r.id === regionId);
+    if (mapViewRef.current && regionCfg) {
+      mapViewRef.current.popup?.close();
+      mapViewRef.current.goTo(
+        { center: regionCfg.mapCenter, zoom: regionCfg.mapZoom },
+        { duration: 900 }
+      );
+      buddySay(`Switched to ${regionCfg.label} attractions & landmarks!`);
+    }
+  };
+
+  const handleLocateAttraction = (attr) => {
+    const regionCfg =
+      ATTRACTION_REGIONS.find((r) => r.id === attr.region) || ATTRACTION_REGIONS[0];
+    setSelectedAttractionId(attr.id);
+    const popupContent = `
+      <div style="font-size:12px;line-height:1.45;">
+        <p style="margin:0 0 4px 0;font-weight:700;color:#006633;">${attr.category} • ${attr.established}</p>
+        <p style="margin:0 0 6px 0;color:#4b5563;"><strong>Address:</strong> ${attr.address}</p>
+        <p style="margin:0;color:#1f2937;">${attr.desc}</p>
+      </div>
+    `;
+    handleLocateItem(attr.lng, attr.lat, attr.name, attr.name, {
+      skipCampusFeatureLookup: regionCfg.skipCampusFeatureLookup,
+      zoom: regionCfg.skipCampusFeatureLookup ? 16.5 : 17.5,
+      regionLabel: regionCfg.label,
+      popupTitle: attr.name,
+      popupContent,
+      triggerBlink: true,
+    });
+  };
+
+  const handleLocateItem = async (lng, lat, label, buildingQuery, options = {}) => {
     if (!mapViewRef.current || !webMapRef.current) {
       showToast("Map is still initializing—try again in a moment!");
       return;
@@ -947,78 +1099,116 @@ export default function App() {
 
     let matchedFeature = null;
 
-    try {
-      await webMapRef.current.when();
-      const featureLayers = webMapRef.current.allLayers
-        .toArray()
-        .filter((l) => l.type === "feature");
+    if (!options.skipCampusFeatureLookup) {
+      try {
+        await webMapRef.current.when();
+        const featureLayers = webMapRef.current.allLayers
+          .toArray()
+          .filter((l) => l.type === "feature");
 
-      const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-      for (const layer of featureLayers) {
-        if (matchedFeature) break;
-        try {
-          await layer.load();
-          const result = await layer.queryFeatures({
-            where: "1=1",
-            outFields: ["*"],
-            returnGeometry: true,
-            outSpatialReference: mapViewRef.current.spatialReference,
-          });
+        for (const layer of featureLayers) {
+          if (matchedFeature) break;
+          try {
+            await layer.load();
+            const result = await layer.queryFeatures({
+              where: "1=1",
+              outFields: ["*"],
+              returnGeometry: true,
+              outSpatialReference: mapViewRef.current.spatialReference,
+            });
 
-          const features = result.features || [];
-          for (const term of candidateTerms) {
-            const lowerTerm = term.toLowerCase();
-            const normTerm = normalize(term);
-            const found = features.find((feat) =>
-              Object.values(feat.attributes || {}).some((val) => {
-                if (typeof val !== "string") return false;
-                const attrLower = val.trim().toLowerCase();
-                const normAttr = normalize(val);
-                return (
-                  attrLower.includes(lowerTerm) ||
-                  (attrLower.length >= 4 && lowerTerm.includes(attrLower)) ||
-                  (normAttr.length >= 4 &&
-                    (normAttr.includes(normTerm) || normTerm.includes(normAttr)))
-                );
-              })
-            );
-            if (found) {
-              matchedFeature = found;
-              break;
+            const features = result.features || [];
+            for (const term of candidateTerms) {
+              const lowerTerm = term.toLowerCase();
+              const normTerm = normalize(term);
+              const found = features.find((feat) =>
+                Object.values(feat.attributes || {}).some((val) => {
+                  if (typeof val !== "string") return false;
+                  const attrLower = val.trim().toLowerCase();
+                  const normAttr = normalize(val);
+                  return (
+                    attrLower.includes(lowerTerm) ||
+                    (attrLower.length >= 4 && lowerTerm.includes(attrLower)) ||
+                    (normAttr.length >= 4 &&
+                      (normAttr.includes(normTerm) || normTerm.includes(normAttr)))
+                  );
+                })
+              );
+              if (found) {
+                matchedFeature = found;
+                break;
+              }
             }
-          }
-        } catch (layerErr) {}
+          } catch (layerErr) {}
+        }
+      } catch (err) {
+        console.error("ArcGIS building lookup error:", err);
       }
-    } catch (err) {
-      console.error("ArcGIS building lookup error:", err);
     }
 
     if (matchedFeature && matchedFeature.geometry) {
       const geom = matchedFeature.geometry;
       const centerPoint = geom.extent ? geom.extent.center : geom;
-      await mapViewRef.current.goTo({ target: centerPoint, zoom: 18 }, { duration: 900 });
+      if (options.triggerBlink) {
+        triggerBlinkAtPoint(centerPoint, label);
+      }
+      await mapViewRef.current.goTo(
+        { target: centerPoint, zoom: options.zoom ?? 18 },
+        { duration: 900 }
+      );
+      if (options.triggerBlink) {
+        syncBlinkPositionRef.current?.();
+      }
       mapViewRef.current.openPopup({
         features: [matchedFeature],
         location: centerPoint,
       });
     } else {
-      const verifiedMatch = candidateTerms
-        .map((t) => VERIFIED_EMU_COORDS[t.toLowerCase()])
-        .find(Boolean);
+      const verifiedMatch = options.skipCampusFeatureLookup
+        ? null
+        : candidateTerms
+            .map((t) => VERIFIED_EMU_COORDS[t.toLowerCase()])
+            .find(Boolean);
 
       const finalLng = verifiedMatch ? verifiedMatch.lng : lng;
       const finalLat = verifiedMatch ? verifiedMatch.lat : lat;
 
       if (typeof finalLng === "number" && typeof finalLat === "number") {
+        const PointCtor = esriModulesRef.current?.Point;
+        const targetPoint = PointCtor
+          ? new PointCtor({ longitude: finalLng, latitude: finalLat })
+          : null;
+
+        if (options.triggerBlink && targetPoint) {
+          triggerBlinkAtPoint(targetPoint, label);
+        }
+
         await mapViewRef.current.goTo(
-          { center: [finalLng, finalLat], zoom: 18 },
+          { center: [finalLng, finalLat], zoom: options.zoom ?? 18 },
           { duration: 900 }
         );
+
+        if (options.triggerBlink && targetPoint) {
+          syncBlinkPositionRef.current?.();
+        }
+
+        if (options.popupTitle && targetPoint) {
+          mapViewRef.current.openPopup({
+            title: options.popupTitle,
+            content: options.popupContent || "",
+            location: targetPoint,
+          });
+        }
       }
     }
 
-    buddySay(`Pinpointed ${label} on the EMU campus map!`);
+    buddySay(
+      options.regionLabel
+        ? `Pinpointed ${label} in ${options.regionLabel}!`
+        : `Pinpointed ${label} on the EMU campus map!`
+    );
   };
 
   const handleToggleAttending = async (ev) => {
@@ -1971,49 +2161,117 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "Attractions" && (
-            <div className="space-y-4 pb-20">
-              <div className="flex items-center space-x-2 mb-2">
-                <Landmark className="w-6 h-6 text-emu-green" />
-                <h2 className="text-2xl font-extrabold text-emu-dark">
-                  CAMPUS ATTRACTIONS & LANDMARKS
-                </h2>
-              </div>
+          {activeTab === "Attractions" && (() => {
+            const activeRegionMeta =
+              ATTRACTION_REGIONS.find((r) => r.id === attractionRegion) ||
+              ATTRACTION_REGIONS[0];
+            const activeAttractions = ATTRACTIONS_BY_REGION[attractionRegion] || [];
 
-              {EMU_ATTRACTIONS.map((attr) => (
-                <div
-                  key={attr.id}
-                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-200"
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">{attr.name}</h3>
-                      <p className="text-xs text-purple-700 font-semibold">
-                        {attr.established}
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800">
-                      {attr.category}
-                    </span>
+            return (
+              <div className="space-y-4 pb-20">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Landmark className="w-6 h-6 text-emu-green shrink-0" />
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-emu-dark">
+                      {activeRegionMeta.heading}
+                    </h2>
                   </div>
-                  <p className="text-xs text-gray-700 my-2 leading-relaxed">
-                    {attr.desc}
-                  </p>
-                  <div className="flex justify-end pt-2 border-t border-gray-100">
-                    <button
-                      onClick={() =>
-                        handleLocateItem(attr.lng, attr.lat, attr.name, attr.name)
-                      }
-                      className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
-                    >
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>Locate on Map</span>
-                    </button>
+
+                  <div
+                    className="inline-flex bg-gray-200/80 p-1 rounded-xl self-start sm:self-auto"
+                    role="tablist"
+                    aria-label="Attraction Region Switcher"
+                  >
+                    {ATTRACTION_REGIONS.map((region) => {
+                      const isActive = attractionRegion === region.id;
+                      const count = (ATTRACTIONS_BY_REGION[region.id] || []).length;
+                      return (
+                        <button
+                          key={region.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          onClick={() => handleAttractionRegionChange(region.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            isActive
+                              ? "bg-emu-green text-white shadow-sm"
+                              : "text-gray-700 hover:text-emu-dark hover:bg-white/60"
+                          }`}
+                        >
+                          {region.label} ({count})
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {activeAttractions.map((attr) => {
+                  const isSelected = selectedAttractionId === attr.id;
+                  return (
+                    <div
+                      key={attr.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleLocateAttraction(attr)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleLocateAttraction(attr);
+                        }
+                      }}
+                      className={`bg-white rounded-xl p-4 shadow-sm border transition-all cursor-pointer hover:shadow-md ${
+                        isSelected
+                          ? "ring-2 ring-emu-green border-emu-green bg-emu-light/25"
+                          : "border-gray-200 hover:border-green-300"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2 mb-1">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-gray-900 text-base">
+                              {attr.name}
+                            </h3>
+                            {isSelected && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-yellow-100 text-emu-dark border border-yellow-300">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emu-green animate-ping" />
+                                <span>Pinned</span>
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-purple-700 font-semibold">
+                            {attr.established}
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-0.5 flex items-center">
+                            <MapPin className="w-3 h-3 mr-1 text-emu-green shrink-0" />
+                            <span>{attr.address}</span>
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                          {attr.category}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-700 my-2 leading-relaxed">
+                        {attr.desc}
+                      </p>
+                      <div className="flex justify-end pt-2 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLocateAttraction(attr);
+                          }}
+                          className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Locate on Map</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {activeTab === "POIs" && (
             <div className="space-y-4 pb-20">
@@ -2219,11 +2477,29 @@ export default function App() {
           )}
         </div>
 
-        <div className="w-full md:w-1/2 relative h-80 md:h-auto">
+        <div className="w-full md:w-1/2 relative h-80 md:h-auto overflow-hidden">
           <div id="emuMapView" ref={mapContainerRef} />
+          {blinkMarkerPos && blinkMarkerPos.visible && (
+            <div
+              key={blinkMarkerPos.triggerKey}
+              className="map-beacon-wrapper"
+              style={{ left: `${blinkMarkerPos.x}px`, top: `${blinkMarkerPos.y}px` }}
+              aria-hidden="true"
+            >
+              <span className="map-beacon-ring" />
+              <span className="map-beacon-ring map-beacon-ring-delayed" />
+              <span className="map-beacon-dot" />
+              <span className="map-beacon-label">{blinkMarkerPos.label}</span>
+            </div>
+          )}
           <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow border border-gray-200 text-[11px] font-bold text-emu-dark flex items-center space-x-1.5">
             <Navigation className="w-3.5 h-3.5 text-emu-green" />
-s          </div>
+            <span>
+              {activeTab === "Attractions"
+                ? `${attractionRegion} Attractions`
+                : selectedCampus}
+            </span>
+          </div>
         </div>
       </div>
 

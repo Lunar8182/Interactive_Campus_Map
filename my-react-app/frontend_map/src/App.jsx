@@ -49,6 +49,8 @@ import {
   ShieldAlert,
   Navigation,
 } from "lucide-react";
+import ClassScheduleTimeline from "./components/ClassScheduleTimeline";
+import { ATTRACTION_REGIONS, ATTRACTIONS_BY_REGION } from "./data/attractions";
 import "./App.css";
 
 const firebaseConfig = {
@@ -295,54 +297,6 @@ const EMU_ACADEMIC_BUILDINGS = [
   },
 ];
 
-const EMU_ATTRACTIONS = [
-  {
-    id: "attr-1",
-    name: "Rynearson Stadium",
-    category: "Athletics",
-    established: "1969 • Capacity 30,200",
-    desc: "Home of EMU Eagles Football, renowned nationwide for its signature gray FieldTurf.",
-    lng: -83.6473,
-    lat: 42.2558,
-  },
-  {
-    id: "attr-2",
-    name: "George Gervin GameAbove Center",
-    category: "Arena & Events",
-    established: "1998 • Capacity 8,824",
-    desc: "Premier multi-purpose arena hosting Eagles Men’s & Women’s Basketball, concerts, and commencement.",
-    lng: -83.6458,
-    lat: 42.2536,
-  },
-  {
-    id: "attr-3",
-    name: "Pease Auditorium",
-    category: "Historic Landmark",
-    established: "1914 • Neoclassical Architecture",
-    desc: "Historic concert hall hosting School of Music symphonies, guest lectures, and cultural showcases.",
-    lng: -83.6197,
-    lat: 42.2465,
-  },
-  {
-    id: "attr-4",
-    name: "McKenny Hall",
-    category: "Historic Union",
-    established: "1931 • Collegiate Gothic",
-    desc: "Historic landmark on Cross Street that opened as the first student union at a teachers college in the US.",
-    lng: -83.6214,
-    lat: 42.2464,
-  },
-  {
-    id: "attr-5",
-    name: "University Park",
-    category: "Campus Nature",
-    established: "Central Campus Oasis",
-    desc: "Scenic campus pond, fountain, walking trails, and outdoor amphitheater beside the Student Center.",
-    lng: -83.6247,
-    lat: 42.2494,
-  },
-];
-
 const EMU_POIS = [
   {
     id: "poi-1",
@@ -408,6 +362,10 @@ const NAV_TABS = [
 export default function App() {
   const [activeTab, setActiveTab] = useState("Events");
   const [selectedCampus, setSelectedCampus] = useState("Eastern Michigan University");
+  const [attractionRegion, setAttractionRegion] = useState("Campus");
+  const [selectedAttractionId, setSelectedAttractionId] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [blinkMarkerPos, setBlinkMarkerPos] = useState(null);
 
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -422,7 +380,7 @@ export default function App() {
       {
         id: "c-init-1",
         course: "COSC 311",
-        building: "Pray-Harold",
+        building: "Pray-Harrold",
         time: "MW 10:00 AM - 11:50 AM",
         lng: -83.6193,
         lat: 42.2484,
@@ -469,6 +427,14 @@ export default function App() {
     time: "TR 11:00 AM",
   });
 
+  const [catalogIndex, setCatalogIndex] = useState(null);
+  const [selectedCatalogTerm, setSelectedCatalogTerm] = useState("202710");
+  const [catalogByTerm, setCatalogByTerm] = useState({});
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [classSearchQuery, setClassSearchQuery] = useState("");
+  const [showManualClassForm, setShowManualClassForm] = useState(false);
+
   const [chatInput, setChatInput] = useState("");
   const [chatChannel, setChatChannel] = useState("#General");
 
@@ -485,8 +451,16 @@ export default function App() {
   const mapContainerRef = useRef(null);
   const webMapRef = useRef(null);
   const mapViewRef = useRef(null);
+  const esriModulesRef = useRef(null);
+  const attractionsLayerRef = useRef(null);
+  const blinkTargetRef = useRef(null);
+  const blinkTimeoutRef = useRef(null);
+  const blinkSeqRef = useRef(0);
+  const syncBlinkPositionRef = useRef(null);
+  const mapWatchHandlesRef = useRef([]);
   const hasSeededRef = useRef(false);
   const chatEndRef = useRef(null);
+  const classSeqRef = useRef(0);
 
   useEffect(() => {
     if (!document.getElementById("arcgis-430-css")) {
@@ -501,15 +475,29 @@ export default function App() {
       if (!window.require || !mapContainerRef.current || mapViewRef.current) return;
 
       window.require(
-        ["esri/WebMap", "esri/views/MapView"],
-        (WebMap, MapView) => {
+        [
+          "esri/WebMap",
+          "esri/views/MapView",
+          "esri/layers/GraphicsLayer",
+          "esri/Graphic",
+          "esri/geometry/Point",
+        ],
+        (WebMap, MapView, GraphicsLayer, Graphic, Point) => {
           if (!mapContainerRef.current || mapViewRef.current) return;
+
+          esriModulesRef.current = { GraphicsLayer, Graphic, Point };
 
           const webMap = new WebMap({
             portalItem: { id: "bf9349e436fd4cdca9f01a2b94390f81" },
           });
 
+          const attractionsLayer = new GraphicsLayer({ id: "attractions-layer" });
+          attractionsLayerRef.current = attractionsLayer;
+
           webMap.when(() => {
+            if (!webMap.layers.includes(attractionsLayer)) {
+              webMap.add(attractionsLayer);
+            }
             webMap.allLayers.forEach((layer) => {
               if (layer.type === "feature") {
                 layer.when(() => {
@@ -536,6 +524,85 @@ export default function App() {
             zoom: CAMPUS_VIEWS["Eastern Michigan University"].zoom,
           });
 
+          const syncBlinkPosition = () => {
+            const target = blinkTargetRef.current;
+            if (!target || !mapViewRef.current) {
+              setBlinkMarkerPos(null);
+              return;
+            }
+            const screenPt = mapViewRef.current.toScreen(target.point);
+            if (!screenPt) {
+              setBlinkMarkerPos(null);
+              return;
+            }
+            const width = mapViewRef.current.width || 0;
+            const height = mapViewRef.current.height || 0;
+            const visible =
+              screenPt.x >= -24 &&
+              screenPt.y >= -24 &&
+              screenPt.x <= width + 24 &&
+              screenPt.y <= height + 24;
+            setBlinkMarkerPos({
+              x: screenPt.x,
+              y: screenPt.y,
+              visible,
+              label: target.label,
+              triggerKey: target.triggerKey,
+            });
+          };
+          syncBlinkPositionRef.current = syncBlinkPosition;
+
+          view.when(() => {
+            if (view.constraints?.geometry) {
+              view.constraints.geometry = null;
+            }
+            const extentHandle = view.watch("extent", syncBlinkPosition);
+            const sizeHandle = view.watch("size", syncBlinkPosition);
+            const popupHandle = view.popup?.watch("visible", (isVisible, wasVisible) => {
+              if (wasVisible && !isVisible) {
+                blinkTargetRef.current = null;
+                setBlinkMarkerPos(null);
+              }
+            });
+            const clickHandle = view.on("click", async (event) => {
+              if (!attractionsLayerRef.current) return;
+              try {
+                const hit = await view.hitTest(event, { include: attractionsLayerRef.current });
+                const matched = hit.results?.find(
+                  (r) => r.graphic?.attributes?.attractionId
+                );
+                if (matched) {
+                  const { attractionId, attractionName } = matched.graphic.attributes;
+                  setSelectedAttractionId(attractionId);
+                  if (blinkTimeoutRef.current) {
+                    clearTimeout(blinkTimeoutRef.current);
+                    blinkTimeoutRef.current = null;
+                  }
+                  blinkSeqRef.current += 1;
+                  blinkTargetRef.current = {
+                    point: matched.graphic.geometry,
+                    label: attractionName,
+                    triggerKey: blinkSeqRef.current,
+                  };
+                  syncBlinkPosition();
+                  blinkTimeoutRef.current = setTimeout(() => {
+                    blinkTargetRef.current = null;
+                    setBlinkMarkerPos(null);
+                    blinkTimeoutRef.current = null;
+                  }, 3000);
+                }
+              } catch (err) {}
+            });
+
+            mapWatchHandlesRef.current = [
+              extentHandle,
+              sizeHandle,
+              popupHandle,
+              clickHandle,
+            ].filter(Boolean);
+            setMapReady(true);
+          });
+
           webMapRef.current = webMap;
           mapViewRef.current = view;
         }
@@ -559,12 +626,70 @@ export default function App() {
     }
 
     return () => {
+      if (blinkTimeoutRef.current) {
+        clearTimeout(blinkTimeoutRef.current);
+        blinkTimeoutRef.current = null;
+      }
+      mapWatchHandlesRef.current.forEach((h) => {
+        try {
+          h.remove();
+        } catch (e) {}
+      });
+      mapWatchHandlesRef.current = [];
       if (mapViewRef.current) {
         mapViewRef.current.destroy();
         mapViewRef.current = null;
       }
+      setMapReady(false);
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapReady || !attractionsLayerRef.current || !esriModulesRef.current) return;
+    const layer = attractionsLayerRef.current;
+    const { Graphic, Point } = esriModulesRef.current;
+    layer.removeAll();
+
+    if (activeTab !== "Attractions") return;
+
+    const list = ATTRACTIONS_BY_REGION[attractionRegion] || [];
+    const graphics = list.map((attr) => {
+      const isSelected = selectedAttractionId === attr.id;
+      return new Graphic({
+        geometry: new Point({
+          longitude: attr.lng,
+          latitude: attr.lat,
+        }),
+        symbol: {
+          type: "simple-marker",
+          style: "circle",
+          color: isSelected ? "#facc15" : "#006633",
+          size: isSelected ? "14px" : "11px",
+          outline: {
+            color: isSelected ? "#004d26" : "#ffffff",
+            width: isSelected ? 2.5 : 2,
+          },
+        },
+        attributes: {
+          attractionId: attr.id,
+          attractionName: attr.name,
+          region: attr.region,
+        },
+        popupTemplate: {
+          title: attr.name,
+          content: `
+            <div style="font-size:12px;line-height:1.45;">
+              <p style="margin:0 0 4px 0;font-weight:700;color:#006633;">${attr.category} • ${attr.established}</p>
+              <p style="margin:0 0 6px 0;color:#4b5563;"><strong>Address:</strong> ${attr.address}</p>
+              <p style="margin:0;color:#1f2937;">${attr.desc}</p>
+            </div>
+          `,
+        },
+      });
+    });
+
+    layer.addMany(graphics);
+  }, [activeTab, attractionRegion, selectedAttractionId, mapReady]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -636,7 +761,7 @@ export default function App() {
               {
                 id: "c-init-1",
                 course: "COSC 311",
-                building: "Pray Harold",
+                building: "Pray-Harrold",
                 time: "MW 10:00 AM - 11:50 AM",
                 lng: -83.6193,
                 lat: 42.2484,
@@ -749,6 +874,59 @@ export default function App() {
     }
   }, [chatMessages, activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== "Classes") return;
+    let cancelled = false;
+
+    const loadCatalog = async () => {
+      try {
+        setCatalogError("");
+        let idx = catalogIndex;
+        if (!idx) {
+          setCatalogLoading(true);
+          const res = await fetch("/data/catalog-index.json");
+          if (!res.ok) throw new Error("Failed to load class catalog index");
+          idx = await res.json();
+          if (cancelled) return;
+          setCatalogIndex(idx);
+          const preferred =
+            idx.terms?.find((t) => t.term === selectedCatalogTerm)?.term ||
+            idx.terms?.[0]?.term;
+          if (preferred && preferred !== selectedCatalogTerm) {
+            setSelectedCatalogTerm(preferred);
+            return;
+          }
+        }
+
+        if (selectedCatalogTerm && !catalogByTerm[selectedCatalogTerm]) {
+          setCatalogLoading(true);
+          const termRes = await fetch(`/data/classes-${selectedCatalogTerm}.json`);
+          if (!termRes.ok) {
+            throw new Error(`Failed to load classes for term ${selectedCatalogTerm}`);
+          }
+          const termData = await termRes.json();
+          if (cancelled) return;
+          setCatalogByTerm((prev) => ({
+            ...prev,
+            [selectedCatalogTerm]: termData.sections || [],
+          }));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Catalog load error:", err);
+          setCatalogError("Unable to load EMU class catalog right now.");
+        }
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    };
+
+    loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedCatalogTerm, catalogIndex, catalogByTerm]);
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -831,8 +1009,39 @@ export default function App() {
     }
   };
 
+  const clearBlinkMarker = () => {
+    if (blinkTimeoutRef.current) {
+      clearTimeout(blinkTimeoutRef.current);
+      blinkTimeoutRef.current = null;
+    }
+    blinkTargetRef.current = null;
+    setBlinkMarkerPos(null);
+  };
+
+  const triggerBlinkAtPoint = (point, label, durationMs = 3000) => {
+    if (!point) return;
+    if (blinkTimeoutRef.current) {
+      clearTimeout(blinkTimeoutRef.current);
+      blinkTimeoutRef.current = null;
+    }
+    blinkSeqRef.current += 1;
+    blinkTargetRef.current = {
+      point,
+      label,
+      triggerKey: blinkSeqRef.current,
+    };
+    syncBlinkPositionRef.current?.();
+    blinkTimeoutRef.current = setTimeout(() => {
+      blinkTargetRef.current = null;
+      setBlinkMarkerPos(null);
+      blinkTimeoutRef.current = null;
+    }, durationMs);
+  };
+
   const handleCampusChange = (campusName) => {
     setSelectedCampus(campusName);
+    setSelectedAttractionId(null);
+    clearBlinkMarker();
     const target = CAMPUS_VIEWS[campusName];
     if (target && mapViewRef.current) {
       mapViewRef.current.goTo({ center: target.center, zoom: target.zoom }, { duration: 900 });
@@ -840,7 +1049,43 @@ export default function App() {
     }
   };
 
-  const handleLocateItem = async (lng, lat, label, buildingQuery) => {
+  const handleAttractionRegionChange = (regionId) => {
+    setAttractionRegion(regionId);
+    setSelectedAttractionId(null);
+    clearBlinkMarker();
+    const regionCfg = ATTRACTION_REGIONS.find((r) => r.id === regionId);
+    if (mapViewRef.current && regionCfg) {
+      mapViewRef.current.popup?.close();
+      mapViewRef.current.goTo(
+        { center: regionCfg.mapCenter, zoom: regionCfg.mapZoom },
+        { duration: 900 }
+      );
+      buddySay(`Switched to ${regionCfg.label} attractions & landmarks!`);
+    }
+  };
+
+  const handleLocateAttraction = (attr) => {
+    const regionCfg =
+      ATTRACTION_REGIONS.find((r) => r.id === attr.region) || ATTRACTION_REGIONS[0];
+    setSelectedAttractionId(attr.id);
+    const popupContent = `
+      <div style="font-size:12px;line-height:1.45;">
+        <p style="margin:0 0 4px 0;font-weight:700;color:#006633;">${attr.category} • ${attr.established}</p>
+        <p style="margin:0 0 6px 0;color:#4b5563;"><strong>Address:</strong> ${attr.address}</p>
+        <p style="margin:0;color:#1f2937;">${attr.desc}</p>
+      </div>
+    `;
+    handleLocateItem(attr.lng, attr.lat, attr.name, attr.name, {
+      skipCampusFeatureLookup: regionCfg.skipCampusFeatureLookup,
+      zoom: regionCfg.skipCampusFeatureLookup ? 16.5 : 17.5,
+      regionLabel: regionCfg.label,
+      popupTitle: attr.name,
+      popupContent,
+      triggerBlink: true,
+    });
+  };
+
+  const handleLocateItem = async (lng, lat, label, buildingQuery, options = {}) => {
     if (!mapViewRef.current || !webMapRef.current) {
       showToast("Map is still initializing—try again in a moment!");
       return;
@@ -884,78 +1129,116 @@ export default function App() {
 
     let matchedFeature = null;
 
-    try {
-      await webMapRef.current.when();
-      const featureLayers = webMapRef.current.allLayers
-        .toArray()
-        .filter((l) => l.type === "feature");
+    if (!options.skipCampusFeatureLookup) {
+      try {
+        await webMapRef.current.when();
+        const featureLayers = webMapRef.current.allLayers
+          .toArray()
+          .filter((l) => l.type === "feature");
 
-      const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-      for (const layer of featureLayers) {
-        if (matchedFeature) break;
-        try {
-          await layer.load();
-          const result = await layer.queryFeatures({
-            where: "1=1",
-            outFields: ["*"],
-            returnGeometry: true,
-            outSpatialReference: mapViewRef.current.spatialReference,
-          });
+        for (const layer of featureLayers) {
+          if (matchedFeature) break;
+          try {
+            await layer.load();
+            const result = await layer.queryFeatures({
+              where: "1=1",
+              outFields: ["*"],
+              returnGeometry: true,
+              outSpatialReference: mapViewRef.current.spatialReference,
+            });
 
-          const features = result.features || [];
-          for (const term of candidateTerms) {
-            const lowerTerm = term.toLowerCase();
-            const normTerm = normalize(term);
-            const found = features.find((feat) =>
-              Object.values(feat.attributes || {}).some((val) => {
-                if (typeof val !== "string") return false;
-                const attrLower = val.trim().toLowerCase();
-                const normAttr = normalize(val);
-                return (
-                  attrLower.includes(lowerTerm) ||
-                  (attrLower.length >= 4 && lowerTerm.includes(attrLower)) ||
-                  (normAttr.length >= 4 &&
-                    (normAttr.includes(normTerm) || normTerm.includes(normAttr)))
-                );
-              })
-            );
-            if (found) {
-              matchedFeature = found;
-              break;
+            const features = result.features || [];
+            for (const term of candidateTerms) {
+              const lowerTerm = term.toLowerCase();
+              const normTerm = normalize(term);
+              const found = features.find((feat) =>
+                Object.values(feat.attributes || {}).some((val) => {
+                  if (typeof val !== "string") return false;
+                  const attrLower = val.trim().toLowerCase();
+                  const normAttr = normalize(val);
+                  return (
+                    attrLower.includes(lowerTerm) ||
+                    (attrLower.length >= 4 && lowerTerm.includes(attrLower)) ||
+                    (normAttr.length >= 4 &&
+                      (normAttr.includes(normTerm) || normTerm.includes(normAttr)))
+                  );
+                })
+              );
+              if (found) {
+                matchedFeature = found;
+                break;
+              }
             }
-          }
-        } catch (layerErr) {}
+          } catch (layerErr) {}
+        }
+      } catch (err) {
+        console.error("ArcGIS building lookup error:", err);
       }
-    } catch (err) {
-      console.error("ArcGIS building lookup error:", err);
     }
 
     if (matchedFeature && matchedFeature.geometry) {
       const geom = matchedFeature.geometry;
       const centerPoint = geom.extent ? geom.extent.center : geom;
-      await mapViewRef.current.goTo({ target: centerPoint, zoom: 18 }, { duration: 900 });
+      if (options.triggerBlink) {
+        triggerBlinkAtPoint(centerPoint, label);
+      }
+      await mapViewRef.current.goTo(
+        { target: centerPoint, zoom: options.zoom ?? 18 },
+        { duration: 900 }
+      );
+      if (options.triggerBlink) {
+        syncBlinkPositionRef.current?.();
+      }
       mapViewRef.current.openPopup({
         features: [matchedFeature],
         location: centerPoint,
       });
     } else {
-      const verifiedMatch = candidateTerms
-        .map((t) => VERIFIED_EMU_COORDS[t.toLowerCase()])
-        .find(Boolean);
+      const verifiedMatch = options.skipCampusFeatureLookup
+        ? null
+        : candidateTerms
+            .map((t) => VERIFIED_EMU_COORDS[t.toLowerCase()])
+            .find(Boolean);
 
       const finalLng = verifiedMatch ? verifiedMatch.lng : lng;
       const finalLat = verifiedMatch ? verifiedMatch.lat : lat;
 
       if (typeof finalLng === "number" && typeof finalLat === "number") {
+        const PointCtor = esriModulesRef.current?.Point;
+        const targetPoint = PointCtor
+          ? new PointCtor({ longitude: finalLng, latitude: finalLat })
+          : null;
+
+        if (options.triggerBlink && targetPoint) {
+          triggerBlinkAtPoint(targetPoint, label);
+        }
+
         await mapViewRef.current.goTo(
-          { center: [finalLng, finalLat], zoom: 18 },
+          { center: [finalLng, finalLat], zoom: options.zoom ?? 18 },
           { duration: 900 }
         );
+
+        if (options.triggerBlink && targetPoint) {
+          syncBlinkPositionRef.current?.();
+        }
+
+        if (options.popupTitle && targetPoint) {
+          mapViewRef.current.openPopup({
+            title: options.popupTitle,
+            content: options.popupContent || "",
+            location: targetPoint,
+          });
+        }
       }
     }
 
-    buddySay(`Pinpointed ${label} on the EMU campus map!`);
+    buddySay(
+      options.regionLabel
+        ? `Pinpointed ${label} in ${options.regionLabel}!`
+        : `Pinpointed ${label} on the EMU campus map!`
+    );
   };
 
   const handleToggleAttending = async (ev) => {
@@ -1122,23 +1405,90 @@ export default function App() {
     e.preventDefault();
     if (!newClassForm.course.trim()) return;
 
+    const isSpecialOnline = newClassForm.building === "Online";
+    const isSpecialTba = newClassForm.building === "TBA";
     const buildingObj =
-      EMU_ACADEMIC_BUILDINGS.find((b) => b.name === newClassForm.building) ||
-      EMU_ACADEMIC_BUILDINGS[0];
+      isSpecialOnline || isSpecialTba
+        ? null
+        : EMU_ACADEMIC_BUILDINGS.find((b) => b.name === newClassForm.building) ||
+          EMU_ACADEMIC_BUILDINGS[0];
 
+    classSeqRef.current += 1;
     const newEntry = {
-      id: `cls-${Date.now()}`,
+      id: `cls-${classSeqRef.current}`,
       course: newClassForm.course.trim().toUpperCase(),
-      building: buildingObj.name,
-      time: newClassForm.time.trim() || "TBD",
-      lng: buildingObj.lng,
-      lat: buildingObj.lat,
+      building: isSpecialOnline ? "Online" : isSpecialTba ? "TBA" : buildingObj.name,
+      time:
+        newClassForm.time.trim() ||
+        (isSpecialOnline ? "Online (Asynchronous)" : isSpecialTba ? "TBA" : "TBD"),
+      locationType: isSpecialOnline ? "online" : isSpecialTba ? "tba" : "campus",
+      isOnline: isSpecialOnline,
+      isTba: isSpecialTba,
+      lng: buildingObj ? buildingObj.lng : null,
+      lat: buildingObj ? buildingObj.lat : null,
     };
 
     const updatedClasses = [...studentProfile.savedClasses, newEntry];
     setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
     setNewClassForm({ course: "", building: "Pray-Harrold", time: "TR 11:00 AM" });
-    await awardXP(15, `Added ${newEntry.course} in ${newEntry.building}! +15 XP!`);
+    await awardXP(15, `Added ${newEntry.course} (${newEntry.building})! +15 XP!`);
+
+    if (user) {
+      try {
+        const profileRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "profile",
+          "student_data"
+        );
+        await updateDoc(profileRef, { savedClasses: updatedClasses });
+      } catch (err) {
+        console.error("Error saving class schedule:", err);
+      }
+    }
+  };
+
+  const handleAddCatalogSection = async (sec) => {
+    const alreadyAdded = studentProfile.savedClasses.some(
+      (c) => c.crn === sec.crn && c.term === selectedCatalogTerm
+    );
+    if (alreadyAdded) {
+      showToast(`${sec.classId}-${sec.section} (CRN ${sec.crn}) is already in your schedule.`);
+      return;
+    }
+
+    const primaryMeeting =
+      sec.meetings.find((m) => m.locationType === "campus") || sec.meetings[0] || null;
+
+    classSeqRef.current += 1;
+    const newEntry = {
+      id: `cls-${sec.crn}-${classSeqRef.current}`,
+      crn: sec.crn,
+      term: selectedCatalogTerm,
+      course: sec.classId,
+      title: sec.title,
+      section: sec.section,
+      building: primaryMeeting?.canonicalBuilding || (sec.isOnline ? "Online" : "TBA"),
+      room: primaryMeeting?.room || null,
+      time: sec.meetings.map((m) => m.timeDisplay).filter(Boolean).join(" • ") || "TBA",
+      locationType: sec.locationType,
+      isOnline: sec.isOnline,
+      isTba: sec.isTba,
+      lng: typeof primaryMeeting?.lng === "number" ? primaryMeeting.lng : null,
+      lat: typeof primaryMeeting?.lat === "number" ? primaryMeeting.lat : null,
+      meetings: sec.meetings,
+    };
+
+    const updatedClasses = [...studentProfile.savedClasses, newEntry];
+    setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
+    setClassSearchQuery("");
+    await awardXP(
+      15,
+      `Added ${newEntry.course}${newEntry.room ? ` (${newEntry.building} ${newEntry.room})` : ` (${newEntry.building})`}! +15 XP!`
+    );
 
     if (user) {
       try {
@@ -1616,92 +1966,195 @@ export default function App() {
               </div>
 
               <div className="bg-white rounded-xl p-4 shadow-sm border border-green-200">
-                <h3 className="text-sm font-extrabold text-emu-dark mb-3">
-                  My EMU Class Schedule (+15 XP per class)
-                </h3>
-                <form
-                  onSubmit={handleAddClass}
-                  className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3"
-                >
-                  <input
-                    type="text"
-                    placeholder="Course (e.g. COSC 481)"
-                    value={newClassForm.course}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, course: e.target.value })
-                    }
-                    required
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
-                  />
-                  <select
-                    value={newClassForm.building}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, building: e.target.value })
-                    }
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h3 className="text-sm font-extrabold text-emu-dark">
+                    My EMU Class Schedule (+15 XP per class)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualClassForm((prev) => !prev)}
+                    className="text-xs font-bold text-emu-green hover:underline"
                   >
-                    {EMU_ACADEMIC_BUILDINGS.map((b) => (
-                      <option key={b.id} value={b.name}>
-                        {b.name}
+                    {showManualClassForm ? "Hide manual entry" : "Or add manually"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+                  <select
+                    value={selectedCatalogTerm}
+                    onChange={(e) => setSelectedCatalogTerm(e.target.value)}
+                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none bg-white"
+                  >
+                    {(catalogIndex?.terms || [
+                      { term: "202710", termDesc: "Fall 2026" },
+                      { term: "202720", termDesc: "Winter 2027" },
+                    ]).map((t) => (
+                      <option key={t.term} value={t.term}>
+                        {t.termDesc}
                       </option>
                     ))}
                   </select>
                   <input
                     type="text"
-                    placeholder="Days/Time"
-                    value={newClassForm.time}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, time: e.target.value })
-                    }
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    placeholder="Search EMU classes (e.g. COSC 411, CRN, title)..."
+                    value={classSearchQuery}
+                    onChange={(e) => setClassSearchQuery(e.target.value)}
+                    className="sm:col-span-3 px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
                   />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add</span>
-                  </button>
-                </form>
-
-                <div className="space-y-1.5">
-                  {studentProfile.savedClasses.map((cls) => (
-                    <div
-                      key={cls.id}
-                      className="flex items-center justify-between bg-emu-light/60 px-3 py-2 rounded-lg text-xs"
-                    >
-                      <div>
-                        <span className="font-bold text-emu-dark">{cls.course}</span>
-                        <span className="text-gray-600">
-                          {" "}
-                          • {cls.building} ({cls.time})
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() =>
-                            handleLocateItem(
-                              cls.lng,
-                              cls.lat,
-                              `${cls.course} - ${cls.building}`,
-                              cls.building
-                            )
-                          }
-                          className="text-emu-green font-bold hover:underline"
-                        >
-                          Map
-                        </button>
-                        <button
-                          onClick={() => handleRemoveClass(cls.id)}
-                          className="text-red-500 hover:text-red-700"
-                          title="Remove class"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
                 </div>
+
+                {catalogLoading && (
+                  <p className="text-xs text-gray-500 mb-2">Loading EMU class catalog...</p>
+                )}
+                {catalogError && (
+                  <p className="text-xs text-red-600 mb-2">{catalogError}</p>
+                )}
+
+                {classSearchQuery.trim().length >= 2 && !catalogLoading && (
+                  <div className="max-h-60 overflow-y-auto emu-scrollbar border border-gray-200 rounded-lg divide-y divide-gray-100 mb-3">
+                    {(() => {
+                      const rawQ = classSearchQuery.trim().toLowerCase();
+                      const compactQ = rawQ.replace(/\s+/g, "");
+                      const sections = catalogByTerm[selectedCatalogTerm] || [];
+                      const matches = sections
+                        .filter((sec) => {
+                          const idCompact = sec.classId.toLowerCase().replace(/\s+/g, "");
+                          return (
+                            idCompact.includes(compactQ) ||
+                            sec.classId.toLowerCase().includes(rawQ) ||
+                            sec.crn.includes(rawQ) ||
+                            sec.title.toLowerCase().includes(rawQ) ||
+                            sec.meetings.some((m) =>
+                              (m.canonicalBuilding || "").toLowerCase().includes(rawQ)
+                            )
+                          );
+                        })
+                        .slice(0, 20);
+
+                      if (matches.length === 0) {
+                        return (
+                          <p className="text-xs text-gray-400 p-3 text-center">
+                            No matching classes found in this term.
+                          </p>
+                        );
+                      }
+
+                      return matches.map((sec) => {
+                        const primary =
+                          sec.meetings.find((m) => m.locationType === "campus") ||
+                          sec.meetings[0];
+                        return (
+                          <div
+                            key={sec.crn}
+                            className="flex items-center justify-between gap-2 p-2.5 hover:bg-gray-50 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-emu-dark">
+                                  {sec.classId}-{sec.section}
+                                </span>
+                                <span className="text-[10px] text-gray-400">
+                                  CRN {sec.crn}
+                                </span>
+                                {sec.isOnline ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                                    Online
+                                  </span>
+                                ) : sec.isTba ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                    TBA
+                                  </span>
+                                ) : sec.locationType === "off-campus" ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                    Off-Campus
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-emu-dark">
+                                    {primary?.canonicalBuilding}
+                                    {primary?.room ? ` ${primary.room}` : ""}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-gray-700 truncate">{sec.title}</p>
+                              <p className="text-[11px] text-gray-500">
+                                {sec.meetings.map((m) => m.timeDisplay).join(" • ")}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAddCatalogSection(sec)}
+                              className="shrink-0 px-2.5 py-1 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+
+                {showManualClassForm && (
+                  <form
+                    onSubmit={handleAddClass}
+                    className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3 pt-2 border-t border-gray-100"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Course (e.g. COSC 481)"
+                      value={newClassForm.course}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, course: e.target.value })
+                      }
+                      required
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    />
+                    <select
+                      value={newClassForm.building}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, building: e.target.value })
+                      }
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    >
+                      {EMU_ACADEMIC_BUILDINGS.map((b) => (
+                        <option key={b.id} value={b.name}>
+                          {b.name}
+                        </option>
+                      ))}
+                      <option value="Online">Online (No Physical Building)</option>
+                      <option value="TBA">TBA (Location Pending)</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Days/Time"
+                      value={newClassForm.time}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, time: e.target.value })
+                      }
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </form>
+                )}
+
+                <ClassScheduleTimeline
+                  savedClasses={studentProfile.savedClasses}
+                  onLocateClass={(cls) =>
+                    handleLocateItem(
+                      cls.lng,
+                      cls.lat,
+                      `${cls.course} - ${cls.building}`,
+                      cls.building
+                    )
+                  }
+                  onRemoveClass={handleRemoveClass}
+                />
               </div>
 
               <div className="space-y-3">
@@ -1738,49 +2191,111 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "Attractions" && (
-            <div className="space-y-4 pb-20">
-              <div className="flex items-center space-x-2 mb-2">
-                <Landmark className="w-6 h-6 text-emu-green" />
-                <h2 className="text-2xl font-extrabold text-emu-dark">
-                  CAMPUS ATTRACTIONS & LANDMARKS
-                </h2>
-              </div>
+          {activeTab === "Attractions" && (() => {
+            const activeRegionMeta =
+              ATTRACTION_REGIONS.find((r) => r.id === attractionRegion) ||
+              ATTRACTION_REGIONS[0];
+            const activeAttractions = ATTRACTIONS_BY_REGION[attractionRegion] || [];
 
-              {EMU_ATTRACTIONS.map((attr) => (
-                <div
-                  key={attr.id}
-                  className="bg-white rounded-xl p-4 shadow-sm border border-gray-200"
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">{attr.name}</h3>
-                      <p className="text-xs text-purple-700 font-semibold">
-                        {attr.established}
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800">
-                      {attr.category}
-                    </span>
+            return (
+              <div className="space-y-4 pb-20">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Landmark className="w-6 h-6 text-emu-green shrink-0" />
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-emu-dark">
+                      {activeRegionMeta.heading}
+                    </h2>
                   </div>
-                  <p className="text-xs text-gray-700 my-2 leading-relaxed">
-                    {attr.desc}
-                  </p>
-                  <div className="flex justify-end pt-2 border-t border-gray-100">
-                    <button
-                      onClick={() =>
-                        handleLocateItem(attr.lng, attr.lat, attr.name, attr.name)
-                      }
-                      className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
-                    >
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>Locate on Map</span>
-                    </button>
+
+                  <div
+                    className="inline-flex bg-gray-200/80 p-1 rounded-xl self-start sm:self-auto"
+                    role="tablist"
+                    aria-label="Attraction Region Switcher"
+                  >
+                    {ATTRACTION_REGIONS.map((region) => {
+                      const isActive = attractionRegion === region.id;
+                      const count = (ATTRACTIONS_BY_REGION[region.id] || []).length;
+                      return (
+                        <button
+                          key={region.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          onClick={() => handleAttractionRegionChange(region.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            isActive
+                              ? "bg-emu-green text-white shadow-sm"
+                              : "text-gray-700 hover:text-emu-dark hover:bg-white/60"
+                          }`}
+                        >
+                          {region.label} ({count})
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {activeAttractions.map((attr) => {
+                  const isSelected = selectedAttractionId === attr.id;
+                  return (
+                    <div
+                      key={attr.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleLocateAttraction(attr)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleLocateAttraction(attr);
+                        }
+                      }}
+                      className={`bg-white rounded-xl p-4 shadow-sm border transition-all cursor-pointer hover:shadow-md ${
+                        isSelected
+                          ? "ring-2 ring-emu-green border-emu-green bg-emu-light/25"
+                          : "border-gray-200 hover:border-green-300"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2 mb-1">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-gray-900 text-base">
+                              {attr.name}
+                            </h3>
+                          </div>
+                          <p className="text-xs text-purple-700 font-semibold">
+                            {attr.established}
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-0.5 flex items-center">
+                            <MapPin className="w-3 h-3 mr-1 text-emu-green shrink-0" />
+                            <span>{attr.address}</span>
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                          {attr.category}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-700 my-2 leading-relaxed">
+                        {attr.desc}
+                      </p>
+                      <div className="flex justify-end pt-2 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLocateAttraction(attr);
+                          }}
+                          className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center space-x-1"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Locate on Map</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {activeTab === "POIs" && (
             <div className="space-y-4 pb-20">
@@ -1986,11 +2501,29 @@ export default function App() {
           )}
         </div>
 
-        <div className="w-full md:w-1/2 relative h-80 md:h-auto">
+        <div className="w-full md:w-1/2 relative h-80 md:h-auto overflow-hidden">
           <div id="emuMapView" ref={mapContainerRef} />
+          {blinkMarkerPos && blinkMarkerPos.visible && (
+            <div
+              key={blinkMarkerPos.triggerKey}
+              className="map-beacon-wrapper"
+              style={{ left: `${blinkMarkerPos.x}px`, top: `${blinkMarkerPos.y}px` }}
+              aria-hidden="true"
+            >
+              <span className="map-beacon-ring" />
+              <span className="map-beacon-ring map-beacon-ring-delayed" />
+              <span className="map-beacon-dot" />
+              <span className="map-beacon-label">{blinkMarkerPos.label}</span>
+            </div>
+          )}
           <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-lg shadow border border-gray-200 text-[11px] font-bold text-emu-dark flex items-center space-x-1.5">
             <Navigation className="w-3.5 h-3.5 text-emu-green" />
-s          </div>
+            <span>
+              {activeTab === "Attractions"
+                ? `${attractionRegion} Attractions`
+                : selectedCampus}
+            </span>
+          </div>
         </div>
       </div>
 

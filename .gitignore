@@ -68,3 +68,7 @@ node_modules/
 # dataconnect generated files
 .dataconnect
 .DS_Store
+
+# Local plans and agent workspace rules
+Plans/
+GEMINI.md

@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "sync:classes": "node scripts/fetch-emu-classes.mjs"
+  },
   "dependencies": {
     "firebase": "^13.3.0"
   }

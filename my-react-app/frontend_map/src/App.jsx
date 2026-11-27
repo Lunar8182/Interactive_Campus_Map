@@ -422,7 +422,7 @@ export default function App() {
       {
         id: "c-init-1",
         course: "COSC 311",
-        building: "Pray-Harold",
+        building: "Pray-Harrold",
         time: "MW 10:00 AM - 11:50 AM",
         lng: -83.6193,
         lat: 42.2484,
@@ -468,6 +468,14 @@ export default function App() {
     building: "Pray-Harrold",
     time: "TR 11:00 AM",
   });
+
+  const [catalogIndex, setCatalogIndex] = useState(null);
+  const [selectedCatalogTerm, setSelectedCatalogTerm] = useState("202710");
+  const [catalogByTerm, setCatalogByTerm] = useState({});
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [classSearchQuery, setClassSearchQuery] = useState("");
+  const [showManualClassForm, setShowManualClassForm] = useState(false);
 
   const [chatInput, setChatInput] = useState("");
   const [chatChannel, setChatChannel] = useState("#General");
@@ -636,7 +644,7 @@ export default function App() {
               {
                 id: "c-init-1",
                 course: "COSC 311",
-                building: "Pray Harold",
+                building: "Pray-Harrold",
                 time: "MW 10:00 AM - 11:50 AM",
                 lng: -83.6193,
                 lat: 42.2484,
@@ -748,6 +756,59 @@ export default function App() {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [chatMessages, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "Classes") return;
+    let cancelled = false;
+
+    const loadCatalog = async () => {
+      try {
+        setCatalogError("");
+        let idx = catalogIndex;
+        if (!idx) {
+          setCatalogLoading(true);
+          const res = await fetch("/data/catalog-index.json");
+          if (!res.ok) throw new Error("Failed to load class catalog index");
+          idx = await res.json();
+          if (cancelled) return;
+          setCatalogIndex(idx);
+          const preferred =
+            idx.terms?.find((t) => t.term === selectedCatalogTerm)?.term ||
+            idx.terms?.[0]?.term;
+          if (preferred && preferred !== selectedCatalogTerm) {
+            setSelectedCatalogTerm(preferred);
+            return;
+          }
+        }
+
+        if (selectedCatalogTerm && !catalogByTerm[selectedCatalogTerm]) {
+          setCatalogLoading(true);
+          const termRes = await fetch(`/data/classes-${selectedCatalogTerm}.json`);
+          if (!termRes.ok) {
+            throw new Error(`Failed to load classes for term ${selectedCatalogTerm}`);
+          }
+          const termData = await termRes.json();
+          if (cancelled) return;
+          setCatalogByTerm((prev) => ({
+            ...prev,
+            [selectedCatalogTerm]: termData.sections || [],
+          }));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Catalog load error:", err);
+          setCatalogError("Unable to load EMU class catalog right now.");
+        }
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    };
+
+    loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedCatalogTerm, catalogIndex, catalogByTerm]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -1122,23 +1183,80 @@ export default function App() {
     e.preventDefault();
     if (!newClassForm.course.trim()) return;
 
+    const isSpecialOnline = newClassForm.building === "Online";
+    const isSpecialTba = newClassForm.building === "TBA";
     const buildingObj =
-      EMU_ACADEMIC_BUILDINGS.find((b) => b.name === newClassForm.building) ||
-      EMU_ACADEMIC_BUILDINGS[0];
+      isSpecialOnline || isSpecialTba
+        ? null
+        : EMU_ACADEMIC_BUILDINGS.find((b) => b.name === newClassForm.building) ||
+          EMU_ACADEMIC_BUILDINGS[0];
 
     const newEntry = {
       id: `cls-${Date.now()}`,
       course: newClassForm.course.trim().toUpperCase(),
-      building: buildingObj.name,
-      time: newClassForm.time.trim() || "TBD",
-      lng: buildingObj.lng,
-      lat: buildingObj.lat,
+      building: isSpecialOnline ? "Online" : isSpecialTba ? "TBA" : buildingObj.name,
+      time:
+        newClassForm.time.trim() ||
+        (isSpecialOnline ? "Online (Asynchronous)" : isSpecialTba ? "TBA" : "TBD"),
+      locationType: isSpecialOnline ? "online" : isSpecialTba ? "tba" : "campus",
+      isOnline: isSpecialOnline,
+      isTba: isSpecialTba,
+      lng: buildingObj ? buildingObj.lng : null,
+      lat: buildingObj ? buildingObj.lat : null,
     };
 
     const updatedClasses = [...studentProfile.savedClasses, newEntry];
     setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
     setNewClassForm({ course: "", building: "Pray-Harrold", time: "TR 11:00 AM" });
-    await awardXP(15, `Added ${newEntry.course} in ${newEntry.building}! +15 XP!`);
+    await awardXP(15, `Added ${newEntry.course} (${newEntry.building})! +15 XP!`);
+
+    if (user) {
+      try {
+        const profileRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "profile",
+          "student_data"
+        );
+        await updateDoc(profileRef, { savedClasses: updatedClasses });
+      } catch (err) {
+        console.error("Error saving class schedule:", err);
+      }
+    }
+  };
+
+  const handleAddCatalogSection = async (sec) => {
+    const primaryMeeting =
+      sec.meetings.find((m) => m.locationType === "campus") || sec.meetings[0] || null;
+
+    const newEntry = {
+      id: `cls-${sec.crn}-${Date.now()}`,
+      crn: sec.crn,
+      term: selectedCatalogTerm,
+      course: sec.classId,
+      title: sec.title,
+      section: sec.section,
+      building: primaryMeeting?.canonicalBuilding || (sec.isOnline ? "Online" : "TBA"),
+      room: primaryMeeting?.room || null,
+      time: sec.meetings.map((m) => m.timeDisplay).filter(Boolean).join(" • ") || "TBA",
+      locationType: sec.locationType,
+      isOnline: sec.isOnline,
+      isTba: sec.isTba,
+      lng: typeof primaryMeeting?.lng === "number" ? primaryMeeting.lng : null,
+      lat: typeof primaryMeeting?.lat === "number" ? primaryMeeting.lat : null,
+      meetings: sec.meetings,
+    };
+
+    const updatedClasses = [...studentProfile.savedClasses, newEntry];
+    setStudentProfile((prev) => ({ ...prev, savedClasses: updatedClasses }));
+    setClassSearchQuery("");
+    await awardXP(
+      15,
+      `Added ${newEntry.course}${newEntry.room ? ` (${newEntry.building} ${newEntry.room})` : ` (${newEntry.building})`}! +15 XP!`
+    );
 
     if (user) {
       try {
@@ -1616,91 +1734,244 @@ export default function App() {
               </div>
 
               <div className="bg-white rounded-xl p-4 shadow-sm border border-green-200">
-                <h3 className="text-sm font-extrabold text-emu-dark mb-3">
-                  My EMU Class Schedule (+15 XP per class)
-                </h3>
-                <form
-                  onSubmit={handleAddClass}
-                  className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3"
-                >
-                  <input
-                    type="text"
-                    placeholder="Course (e.g. COSC 481)"
-                    value={newClassForm.course}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, course: e.target.value })
-                    }
-                    required
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
-                  />
-                  <select
-                    value={newClassForm.building}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, building: e.target.value })
-                    }
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h3 className="text-sm font-extrabold text-emu-dark">
+                    My EMU Class Schedule (+15 XP per class)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualClassForm((prev) => !prev)}
+                    className="text-xs font-bold text-emu-green hover:underline"
                   >
-                    {EMU_ACADEMIC_BUILDINGS.map((b) => (
-                      <option key={b.id} value={b.name}>
-                        {b.name}
+                    {showManualClassForm ? "Hide manual entry" : "Or add manually"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+                  <select
+                    value={selectedCatalogTerm}
+                    onChange={(e) => setSelectedCatalogTerm(e.target.value)}
+                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none bg-white"
+                  >
+                    {(catalogIndex?.terms || [
+                      { term: "202710", termDesc: "Fall 2026" },
+                      { term: "202720", termDesc: "Winter 2027" },
+                    ]).map((t) => (
+                      <option key={t.term} value={t.term}>
+                        {t.termDesc}
                       </option>
                     ))}
                   </select>
                   <input
                     type="text"
-                    placeholder="Days/Time"
-                    value={newClassForm.time}
-                    onChange={(e) =>
-                      setNewClassForm({ ...newClassForm, time: e.target.value })
-                    }
-                    className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    placeholder="Search EMU classes (e.g. COSC 411, CRN, title)..."
+                    value={classSearchQuery}
+                    onChange={(e) => setClassSearchQuery(e.target.value)}
+                    className="sm:col-span-3 px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
                   />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1"
+                </div>
+
+                {catalogLoading && (
+                  <p className="text-xs text-gray-500 mb-2">Loading EMU class catalog...</p>
+                )}
+                {catalogError && (
+                  <p className="text-xs text-red-600 mb-2">{catalogError}</p>
+                )}
+
+                {classSearchQuery.trim().length >= 2 && !catalogLoading && (
+                  <div className="max-h-60 overflow-y-auto emu-scrollbar border border-gray-200 rounded-lg divide-y divide-gray-100 mb-3">
+                    {(() => {
+                      const rawQ = classSearchQuery.trim().toLowerCase();
+                      const compactQ = rawQ.replace(/\s+/g, "");
+                      const sections = catalogByTerm[selectedCatalogTerm] || [];
+                      const matches = sections
+                        .filter((sec) => {
+                          const idCompact = sec.classId.toLowerCase().replace(/\s+/g, "");
+                          return (
+                            idCompact.includes(compactQ) ||
+                            sec.classId.toLowerCase().includes(rawQ) ||
+                            sec.crn.includes(rawQ) ||
+                            sec.title.toLowerCase().includes(rawQ) ||
+                            sec.meetings.some((m) =>
+                              (m.canonicalBuilding || "").toLowerCase().includes(rawQ)
+                            )
+                          );
+                        })
+                        .slice(0, 20);
+
+                      if (matches.length === 0) {
+                        return (
+                          <p className="text-xs text-gray-400 p-3 text-center">
+                            No matching classes found in this term.
+                          </p>
+                        );
+                      }
+
+                      return matches.map((sec) => {
+                        const primary =
+                          sec.meetings.find((m) => m.locationType === "campus") ||
+                          sec.meetings[0];
+                        return (
+                          <div
+                            key={sec.crn}
+                            className="flex items-center justify-between gap-2 p-2.5 hover:bg-gray-50 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-bold text-emu-dark">
+                                  {sec.classId}-{sec.section}
+                                </span>
+                                <span className="text-[10px] text-gray-400">
+                                  CRN {sec.crn}
+                                </span>
+                                {sec.isOnline ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                                    Online
+                                  </span>
+                                ) : sec.isTba ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                    TBA
+                                  </span>
+                                ) : sec.locationType === "off-campus" ? (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                    Off-Campus
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-100 text-emu-dark">
+                                    {primary?.canonicalBuilding}
+                                    {primary?.room ? ` ${primary.room}` : ""}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-gray-700 truncate">{sec.title}</p>
+                              <p className="text-[11px] text-gray-500">
+                                {sec.meetings.map((m) => m.timeDisplay).join(" • ")}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAddCatalogSection(sec)}
+                              className="shrink-0 px-2.5 py-1 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+
+                {showManualClassForm && (
+                  <form
+                    onSubmit={handleAddClass}
+                    className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3 pt-2 border-t border-gray-100"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add</span>
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      placeholder="Course (e.g. COSC 481)"
+                      value={newClassForm.course}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, course: e.target.value })
+                      }
+                      required
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    />
+                    <select
+                      value={newClassForm.building}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, building: e.target.value })
+                      }
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    >
+                      {EMU_ACADEMIC_BUILDINGS.map((b) => (
+                        <option key={b.id} value={b.name}>
+                          {b.name}
+                        </option>
+                      ))}
+                      <option value="Online">Online (No Physical Building)</option>
+                      <option value="TBA">TBA (Location Pending)</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Days/Time"
+                      value={newClassForm.time}
+                      onChange={(e) =>
+                        setNewClassForm({ ...newClassForm, time: e.target.value })
+                      }
+                      className="px-2.5 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-emu-green outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-emu-green hover:bg-emu-dark text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </form>
+                )}
 
                 <div className="space-y-1.5">
-                  {studentProfile.savedClasses.map((cls) => (
-                    <div
-                      key={cls.id}
-                      className="flex items-center justify-between bg-emu-light/60 px-3 py-2 rounded-lg text-xs"
-                    >
-                      <div>
-                        <span className="font-bold text-emu-dark">{cls.course}</span>
-                        <span className="text-gray-600">
-                          {" "}
-                          • {cls.building} ({cls.time})
-                        </span>
+                  {studentProfile.savedClasses.map((cls) => {
+                    const isOnlineCls = cls.isOnline || cls.locationType === "online";
+                    const isTbaCls = cls.isTba || cls.locationType === "tba";
+                    const isOffCampusNoCoords =
+                      cls.locationType === "off-campus" && typeof cls.lng !== "number";
+                    return (
+                      <div
+                        key={cls.id}
+                        className="flex items-center justify-between bg-emu-light/60 px-3 py-2 rounded-lg text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-bold text-emu-dark">{cls.course}</span>
+                          {cls.title && (
+                            <span className="text-gray-700"> — {cls.title}</span>
+                          )}
+                          <span className="text-gray-600">
+                            {" "}
+                            • {cls.building}
+                            {cls.room ? ` ${cls.room}` : ""} ({cls.time})
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {isOnlineCls ? (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                              Online
+                            </span>
+                          ) : isTbaCls ? (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                              TBA
+                            </span>
+                          ) : isOffCampusNoCoords ? (
+                            <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-[10px] font-bold">
+                              Off-Campus
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                handleLocateItem(
+                                  cls.lng,
+                                  cls.lat,
+                                  `${cls.course} - ${cls.building}`,
+                                  cls.building
+                                )
+                              }
+                              className="text-emu-green font-bold hover:underline"
+                            >
+                              Map
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleRemoveClass(cls.id)}
+                            className="text-red-500 hover:text-red-700"
+                            title="Remove class"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() =>
-                            handleLocateItem(
-                              cls.lng,
-                              cls.lat,
-                              `${cls.course} - ${cls.building}`,
-                              cls.building
-                            )
-                          }
-                          className="text-emu-green font-bold hover:underline"
-                        >
-                          Map
-                        </button>
-                        <button
-                          onClick={() => handleRemoveClass(cls.id)}
-                          className="text-red-500 hover:text-red-700"
-                          title="Remove class"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

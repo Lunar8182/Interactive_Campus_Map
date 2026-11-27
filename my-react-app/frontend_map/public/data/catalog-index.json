@@ -1,0 +1,32 @@
+{
+  "academicYear": "2026-2027",
+  "generatedAt": "2026-11-27T05:53:07.221Z",
+  "terms": [
+    {
+      "term": "202710",
+      "termDesc": "Fall 2026",
+      "file": "data/classes-202710.json",
+      "totalSections": 3174,
+      "counts": {
+        "campus": 1664,
+        "online": 671,
+        "tba": 811,
+        "off-campus": 28,
+        "unmapped": 0
+      }
+    },
+    {
+      "term": "202720",
+      "termDesc": "Winter 2027",
+      "file": "data/classes-202720.json",
+      "totalSections": 3106,
+      "counts": {
+        "campus": 1275,
+        "online": 689,
+        "tba": 1111,
+        "off-campus": 31,
+        "unmapped": 0
+      }
+    }
+  ]
+}

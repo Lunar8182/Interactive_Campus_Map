@@ -49,6 +49,7 @@ import {
   ShieldAlert,
   Navigation,
 } from "lucide-react";
+import ClassScheduleTimeline from "./components/ClassScheduleTimeline";
 import "./App.css";
 
 const firebaseConfig = {
@@ -495,6 +496,7 @@ export default function App() {
   const mapViewRef = useRef(null);
   const hasSeededRef = useRef(false);
   const chatEndRef = useRef(null);
+  const classSeqRef = useRef(0);
 
   useEffect(() => {
     if (!document.getElementById("arcgis-430-css")) {
@@ -1191,8 +1193,9 @@ export default function App() {
         : EMU_ACADEMIC_BUILDINGS.find((b) => b.name === newClassForm.building) ||
           EMU_ACADEMIC_BUILDINGS[0];
 
+    classSeqRef.current += 1;
     const newEntry = {
-      id: `cls-${Date.now()}`,
+      id: `cls-${classSeqRef.current}`,
       course: newClassForm.course.trim().toUpperCase(),
       building: isSpecialOnline ? "Online" : isSpecialTba ? "TBA" : buildingObj.name,
       time:
@@ -1229,11 +1232,20 @@ export default function App() {
   };
 
   const handleAddCatalogSection = async (sec) => {
+    const alreadyAdded = studentProfile.savedClasses.some(
+      (c) => c.crn === sec.crn && c.term === selectedCatalogTerm
+    );
+    if (alreadyAdded) {
+      showToast(`${sec.classId}-${sec.section} (CRN ${sec.crn}) is already in your schedule.`);
+      return;
+    }
+
     const primaryMeeting =
       sec.meetings.find((m) => m.locationType === "campus") || sec.meetings[0] || null;
 
+    classSeqRef.current += 1;
     const newEntry = {
-      id: `cls-${sec.crn}-${Date.now()}`,
+      id: `cls-${sec.crn}-${classSeqRef.current}`,
       crn: sec.crn,
       term: selectedCatalogTerm,
       course: sec.classId,
@@ -1911,68 +1923,18 @@ export default function App() {
                   </form>
                 )}
 
-                <div className="space-y-1.5">
-                  {studentProfile.savedClasses.map((cls) => {
-                    const isOnlineCls = cls.isOnline || cls.locationType === "online";
-                    const isTbaCls = cls.isTba || cls.locationType === "tba";
-                    const isOffCampusNoCoords =
-                      cls.locationType === "off-campus" && typeof cls.lng !== "number";
-                    return (
-                      <div
-                        key={cls.id}
-                        className="flex items-center justify-between bg-emu-light/60 px-3 py-2 rounded-lg text-xs"
-                      >
-                        <div className="min-w-0">
-                          <span className="font-bold text-emu-dark">{cls.course}</span>
-                          {cls.title && (
-                            <span className="text-gray-700"> — {cls.title}</span>
-                          )}
-                          <span className="text-gray-600">
-                            {" "}
-                            • {cls.building}
-                            {cls.room ? ` ${cls.room}` : ""} ({cls.time})
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2 shrink-0">
-                          {isOnlineCls ? (
-                            <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
-                              Online
-                            </span>
-                          ) : isTbaCls ? (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
-                              TBA
-                            </span>
-                          ) : isOffCampusNoCoords ? (
-                            <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-[10px] font-bold">
-                              Off-Campus
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() =>
-                                handleLocateItem(
-                                  cls.lng,
-                                  cls.lat,
-                                  `${cls.course} - ${cls.building}`,
-                                  cls.building
-                                )
-                              }
-                              className="text-emu-green font-bold hover:underline"
-                            >
-                              Map
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleRemoveClass(cls.id)}
-                            className="text-red-500 hover:text-red-700"
-                            title="Remove class"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <ClassScheduleTimeline
+                  savedClasses={studentProfile.savedClasses}
+                  onLocateClass={(cls) =>
+                    handleLocateItem(
+                      cls.lng,
+                      cls.lat,
+                      `${cls.course} - ${cls.building}`,
+                      cls.building
+                    )
+                  }
+                  onRemoveClass={handleRemoveClass}
+                />
               </div>
 
               <div className="space-y-3">

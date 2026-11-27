@@ -454,6 +454,8 @@ export default function App() {
   const esriModulesRef = useRef(null);
   const attractionsLayerRef = useRef(null);
   const blinkTargetRef = useRef(null);
+  const blinkTimeoutRef = useRef(null);
+  const blinkSeqRef = useRef(0);
   const syncBlinkPositionRef = useRef(null);
   const mapWatchHandlesRef = useRef([]);
   const hasSeededRef = useRef(false);
@@ -572,12 +574,22 @@ export default function App() {
                 if (matched) {
                   const { attractionId, attractionName } = matched.graphic.attributes;
                   setSelectedAttractionId(attractionId);
+                  if (blinkTimeoutRef.current) {
+                    clearTimeout(blinkTimeoutRef.current);
+                    blinkTimeoutRef.current = null;
+                  }
+                  blinkSeqRef.current += 1;
                   blinkTargetRef.current = {
                     point: matched.graphic.geometry,
                     label: attractionName,
-                    triggerKey: Date.now(),
+                    triggerKey: blinkSeqRef.current,
                   };
                   syncBlinkPosition();
+                  blinkTimeoutRef.current = setTimeout(() => {
+                    blinkTargetRef.current = null;
+                    setBlinkMarkerPos(null);
+                    blinkTimeoutRef.current = null;
+                  }, 3000);
                 }
               } catch (err) {}
             });
@@ -614,6 +626,10 @@ export default function App() {
     }
 
     return () => {
+      if (blinkTimeoutRef.current) {
+        clearTimeout(blinkTimeoutRef.current);
+        blinkTimeoutRef.current = null;
+      }
       mapWatchHandlesRef.current.forEach((h) => {
         try {
           h.remove();
@@ -994,18 +1010,32 @@ export default function App() {
   };
 
   const clearBlinkMarker = () => {
+    if (blinkTimeoutRef.current) {
+      clearTimeout(blinkTimeoutRef.current);
+      blinkTimeoutRef.current = null;
+    }
     blinkTargetRef.current = null;
     setBlinkMarkerPos(null);
   };
 
-  const triggerBlinkAtPoint = (point, label) => {
+  const triggerBlinkAtPoint = (point, label, durationMs = 3000) => {
     if (!point) return;
+    if (blinkTimeoutRef.current) {
+      clearTimeout(blinkTimeoutRef.current);
+      blinkTimeoutRef.current = null;
+    }
+    blinkSeqRef.current += 1;
     blinkTargetRef.current = {
       point,
       label,
-      triggerKey: Date.now(),
+      triggerKey: blinkSeqRef.current,
     };
     syncBlinkPositionRef.current?.();
+    blinkTimeoutRef.current = setTimeout(() => {
+      blinkTargetRef.current = null;
+      setBlinkMarkerPos(null);
+      blinkTimeoutRef.current = null;
+    }, durationMs);
   };
 
   const handleCampusChange = (campusName) => {
@@ -2231,12 +2261,6 @@ export default function App() {
                             <h3 className="font-bold text-gray-900 text-base">
                               {attr.name}
                             </h3>
-                            {isSelected && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-yellow-100 text-emu-dark border border-yellow-300">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emu-green animate-ping" />
-                                <span>Pinned</span>
-                              </span>
-                            )}
                           </div>
                           <p className="text-xs text-purple-700 font-semibold">
                             {attr.established}
